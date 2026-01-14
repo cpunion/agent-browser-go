@@ -1,5 +1,5 @@
 # Binaries
-agent-browser-go
+/agent-browser-go
 *.exe
 *.dll
 *.so
