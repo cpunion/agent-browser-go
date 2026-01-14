@@ -29,9 +29,24 @@ type Daemon struct {
 
 // NewDaemon creates a new daemon instance.
 func NewDaemon(session string) *Daemon {
+	return NewDaemonWithBackend(session, "chromedp")
+}
+
+// NewDaemonWithBackend creates a new daemon instance with specified backend.
+func NewDaemonWithBackend(session string, backendType string) *Daemon {
+	var backend BackendType
+	switch backendType {
+	case "playwright":
+		backend = BackendPlaywright
+	case "chromedp":
+		fallthrough
+	default:
+		backend = BackendChromedp
+	}
+
 	return &Daemon{
 		session:  session,
-		browser:  NewBrowserManager(),
+		browser:  NewBrowserManagerWithBackend(backend),
 		shutdown: make(chan struct{}),
 	}
 }
