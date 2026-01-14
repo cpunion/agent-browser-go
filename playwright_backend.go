@@ -71,49 +71,82 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 		args = append(args, "--disable-dev-shm-usage")
 	}
 
-	launchOpts := playwright.BrowserTypeLaunchOptions{
-		Headless: &opts.Headless,
-		Args:     args,
-		// Remove automation flags
-		IgnoreDefaultArgs: []string{"--enable-automation"},
-	}
-	if opts.ExecutablePath != "" {
-		launchOpts.ExecutablePath = &opts.ExecutablePath
-	}
-
-	p.browser, err = p.pw.Chromium.Launch(launchOpts)
-	if err != nil {
-		p.pw.Stop()
-		return fmt.Errorf("failed to launch browser: %w", err)
-	}
-
-	// Create context
-	contextOpts := playwright.BrowserNewContextOptions{}
-	if p.viewport != nil {
-		contextOpts.Viewport = &playwright.Size{
-			Width:  p.viewport.Width,
-			Height: p.viewport.Height,
+	// Use persistent context if UserDataDir is specified
+	if opts.UserDataDir != "" {
+		// Launch persistent context (like Python's launch_persistent_context)
+		contextOpts := playwright.BrowserTypeLaunchPersistentContextOptions{
+			Headless:          &opts.Headless,
+			Args:              args,
+			IgnoreDefaultArgs: []string{"--enable-automation"},
 		}
+		if opts.ExecutablePath != "" {
+			contextOpts.ExecutablePath = &opts.ExecutablePath
+		}
+		if p.viewport != nil {
+			contextOpts.Viewport = &playwright.Size{
+				Width:  p.viewport.Width,
+				Height: p.viewport.Height,
+			}
+		}
+
+		p.context, err = p.pw.Chromium.LaunchPersistentContext(opts.UserDataDir, contextOpts)
+		if err != nil {
+			p.pw.Stop()
+			return fmt.Errorf("failed to launch persistent context: %w", err)
+		}
+
+		// Get the first page
+		pages := p.context.Pages()
+		if len(pages) > 0 {
+			p.pages = []playwright.Page{pages[0]}
+			p.activeTab = 0
+		}
+	} else {
+		// Regular browser launch
+		launchOpts := playwright.BrowserTypeLaunchOptions{
+			Headless:          &opts.Headless,
+			Args:              args,
+			IgnoreDefaultArgs: []string{"--enable-automation"},
+		}
+		if opts.ExecutablePath != "" {
+			launchOpts.ExecutablePath = &opts.ExecutablePath
+		}
+
+		p.browser, err = p.pw.Chromium.Launch(launchOpts)
+		if err != nil {
+			p.pw.Stop()
+			return fmt.Errorf("failed to launch browser: %w", err)
+		}
+
+		// Create context
+		contextOpts := playwright.BrowserNewContextOptions{}
+		if p.viewport != nil {
+			contextOpts.Viewport = &playwright.Size{
+				Width:  p.viewport.Width,
+				Height: p.viewport.Height,
+			}
+		}
+
+		p.context, err = p.browser.NewContext(contextOpts)
+		if err != nil {
+			p.browser.Close()
+			p.pw.Stop()
+			return fmt.Errorf("failed to create context: %w", err)
+		}
+
+		// Create initial page
+		page, err := p.context.NewPage()
+		if err != nil {
+			p.context.Close()
+			p.browser.Close()
+			p.pw.Stop()
+			return fmt.Errorf("failed to create page: %w", err)
+		}
+
+		p.pages = append(p.pages, page)
+		p.activeTab = 0
 	}
 
-	p.context, err = p.browser.NewContext(contextOpts)
-	if err != nil {
-		p.browser.Close()
-		p.pw.Stop()
-		return fmt.Errorf("failed to create context: %w", err)
-	}
-
-	// Create initial page
-	page, err := p.context.NewPage()
-	if err != nil {
-		p.context.Close()
-		p.browser.Close()
-		p.pw.Stop()
-		return fmt.Errorf("failed to create page: %w", err)
-	}
-
-	p.pages = append(p.pages, page)
-	p.activeTab = 0
 	p.launched.Store(true)
 	return nil
 }
