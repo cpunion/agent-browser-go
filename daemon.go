@@ -298,7 +298,11 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		if action != "launch" && action != "close" && !d.browser.IsLaunched() {
 			// Auto-launch with saved preferences
 			headed := GetSessionHeaded(d.session)
-			d.browser.Launch(LaunchOptions{Headless: !headed})
+			userDataDir := os.Getenv("AGENT_BROWSER_USER_DATA_DIR")
+			d.browser.Launch(LaunchOptions{
+				Headless:    !headed,
+				UserDataDir: userDataDir,
+			})
 		}
 
 		// Execute command

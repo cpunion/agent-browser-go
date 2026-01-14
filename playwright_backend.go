@@ -2,6 +2,7 @@ package agentbrowser
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -56,9 +57,25 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 		p.viewport = &Viewport{Width: 1280, Height: 720}
 	}
 
-	// Launch browser
+	// Launch browser with anti-detection arguments
+	args := []string{
+		"--disable-blink-features=AutomationControlled",
+		"--disable-infobars",
+	}
+
+	// Optional: sandbox and shm flags (via environment variables)
+	if os.Getenv("AGENT_BROWSER_NO_SANDBOX") == "1" {
+		args = append(args, "--no-sandbox")
+	}
+	if os.Getenv("AGENT_BROWSER_DISABLE_SHM") == "1" {
+		args = append(args, "--disable-dev-shm-usage")
+	}
+
 	launchOpts := playwright.BrowserTypeLaunchOptions{
 		Headless: &opts.Headless,
+		Args:     args,
+		// Remove automation flags
+		IgnoreDefaultArgs: []string{"--enable-automation"},
 	}
 	if opts.ExecutablePath != "" {
 		launchOpts.ExecutablePath = &opts.ExecutablePath

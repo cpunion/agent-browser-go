@@ -3,6 +3,7 @@ package agentbrowser
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,6 +56,7 @@ type LaunchOptions struct {
 	Headless       bool
 	Viewport       *Viewport
 	ExecutablePath string
+	UserDataDir    string // Path to user data directory for persistent profiles
 	CDPPort        int
 	Headers        map[string]string
 }
@@ -85,6 +87,18 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.DisableGPU,
+		// Anti-detection: hide automation flags
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("disable-infobars", true),
+		chromedp.Flag("excludeSwitches", "enable-automation"),
+	}
+
+	// Optional: sandbox and shm flags (via environment variables)
+	if os.Getenv("AGENT_BROWSER_NO_SANDBOX") == "1" {
+		chromedpOpts = append(chromedpOpts, chromedp.NoSandbox)
+	}
+	if os.Getenv("AGENT_BROWSER_DISABLE_SHM") == "1" {
+		chromedpOpts = append(chromedpOpts, chromedp.Flag("disable-dev-shm-usage", true))
 	}
 
 	if opts.Headless {
@@ -93,6 +107,10 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 
 	if opts.ExecutablePath != "" {
 		chromedpOpts = append(chromedpOpts, chromedp.ExecPath(opts.ExecutablePath))
+	}
+
+	if opts.UserDataDir != "" {
+		chromedpOpts = append(chromedpOpts, chromedp.UserDataDir(opts.UserDataDir))
 	}
 
 	if opts.Viewport != nil {

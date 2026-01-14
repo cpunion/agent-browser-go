@@ -121,6 +121,35 @@ agent-browser-go --json snapshot -i
 }
 ```
 
+## Environment Variables
+
+### Backend Selection
+- `AGENT_BROWSER_BACKEND` - Choose browser backend (`chromedp` or `playwright`)
+  ```bash
+  export AGENT_BROWSER_BACKEND=playwright
+  agent-browser-go open https://example.com
+  ```
+
+### User Data Directory (Persistent Profiles)
+- `AGENT_BROWSER_USER_DATA_DIR` - Path to browser profile directory
+  ```bash
+  # Use existing Chrome profile (maintains login sessions)
+  export AGENT_BROWSER_USER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome/Default"
+
+  # Or create a dedicated profile
+  export AGENT_BROWSER_USER_DATA_DIR="$PWD/browser-profile"
+  agent-browser-go --head open https://studio.youtube.com
+  ```
+
+### Anti-Detection (for sites like YouTube Studio)
+- `AGENT_BROWSER_NO_SANDBOX=1` - Disable sandbox (use in containers)
+- `AGENT_BROWSER_DISABLE_SHM=1` - Disable shared memory (use in Docker)
+
+**Default anti-detection flags** (always enabled):
+- `--disable-blink-features=AutomationControlled` - Hide automation flag
+- `--disable-infobars` - Remove automation banner
+- `--excludeSwitches=enable-automation` - Remove automation markers
+
 ## Architecture
 
 - **Browser Engine**: chromedp (native Go Chrome DevTools Protocol)
