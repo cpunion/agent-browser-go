@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -299,6 +300,9 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 			// Auto-launch with saved preferences
 			headed := GetSessionHeaded(d.session)
 			userDataDir := os.Getenv("AGENT_BROWSER_USER_DATA_DIR")
+			if userDataDir != "" {
+				log.Printf("Using UserDataDir: %s", userDataDir)
+			}
 			d.browser.Launch(LaunchOptions{
 				Headless:    !headed,
 				UserDataDir: userDataDir,

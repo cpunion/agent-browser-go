@@ -676,6 +676,7 @@ func handleDaemon(session string, backend string) {
 		PidFileName: agentbrowser.GetPIDFile(session),
 		PidFilePerm: 0644,
 		Umask:       027,
+		Env:         os.Environ(), // Pass environment variables to child process
 	}
 
 	// Reborn creates a child process and returns in the child
