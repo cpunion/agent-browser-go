@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentbrowser "github.com/cpunion/agent-browser-go"
+	"github.com/sevlyar/go-daemon"
 )
 
 var version = "0.1.0"
@@ -75,6 +76,14 @@ func main() {
 		backend = envBackend
 	}
 
+	// If backend not specified, try to load from session
+	if backend == "chromedp" {
+		savedBackend := agentbrowser.GetSessionBackend(session)
+		if savedBackend != "" {
+			backend = savedBackend
+		}
+	}
+
 	if len(remainingArgs) == 0 {
 		printHelp()
 		os.Exit(0)
@@ -92,6 +101,10 @@ func main() {
 		handleSession(cmdArgs, session)
 		return
 	case "daemon":
+		if len(cmdArgs) > 0 && cmdArgs[0] == "stop" {
+			handleDaemonStop(cmdArgs[1:], session)
+			return
+		}
 		handleDaemon(session, backend)
 		return
 	case "help":
@@ -105,6 +118,13 @@ func main() {
 
 	// Ensure daemon is running
 	if !agentbrowser.IsDaemonRunning(session) {
+		// Save backend and headed preference for this session
+		if err := agentbrowser.SaveSessionBackend(session, backend); err != nil {
+			printError(jsonMode, "Failed to save backend: "+err.Error())
+		}
+		if err := agentbrowser.SaveSessionHeaded(session, headed); err != nil {
+			printError(jsonMode, "Failed to save headed preference: "+err.Error())
+		}
 		if err := startDaemon(session, backend); err != nil {
 			printError(jsonMode, "Failed to start daemon: "+err.Error())
 			os.Exit(1)
@@ -651,12 +671,92 @@ func startDaemon(session string, backend string) error {
 }
 
 func handleDaemon(session string, backend string) {
+	// Use go-daemon library for proper daemonization
+	ctx := &daemon.Context{
+		PidFileName: agentbrowser.GetPIDFile(session),
+		PidFilePerm: 0644,
+		Umask:       027,
+	}
+
+	// Reborn creates a child process and returns in the child
+	child, err := ctx.Reborn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to daemonize: %v\n", err)
+		os.Exit(1)
+	}
+
+	if child != nil {
+		// Parent process - just exit
+		return
+	}
+	defer ctx.Release()
+
+	// Child process - run the daemon
 	daemon := agentbrowser.NewDaemonWithBackend(session, backend)
 	if err := daemon.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start daemon: %v\n", err)
+		// Can't write to stderr in daemon, so just exit
 		os.Exit(1)
 	}
 	daemon.Wait()
+}
+
+func handleDaemonStop(args []string, currentSession string) {
+	stopAll := false
+	var targetSession string
+
+	// Parse args
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--all", "-a":
+			stopAll = true
+		case "--session", "-s":
+			if i+1 < len(args) {
+				targetSession = args[i+1]
+				i++
+			}
+		}
+	}
+
+	if stopAll {
+		// Stop all daemons
+		sessions, err := agentbrowser.ListRunningSessions()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to list sessions: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(sessions) == 0 {
+			fmt.Println("No running daemons found")
+			return
+		}
+
+		fmt.Printf("Stopping %d daemon(s)...\n", len(sessions))
+		for _, session := range sessions {
+			fmt.Printf("  Stopping %s...", session)
+			if err := agentbrowser.StopDaemon(session); err != nil {
+				fmt.Printf(" failed: %v\n", err)
+			} else {
+				fmt.Println(" done")
+			}
+		}
+	} else {
+		// Stop specific session
+		if targetSession == "" {
+			targetSession = currentSession
+		}
+
+		if !agentbrowser.IsDaemonRunning(targetSession) {
+			fmt.Printf("Daemon not running for session: %s\n", targetSession)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Stopping daemon for session: %s...", targetSession)
+		if err := agentbrowser.StopDaemon(targetSession); err != nil {
+			fmt.Printf(" failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(" done")
+	}
 }
 
 func handleSession(args []string, session string) {

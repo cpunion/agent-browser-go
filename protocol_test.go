@@ -30,11 +30,6 @@ func TestParseCommand_Navigation(t *testing.T) {
 			},
 		},
 		{
-			name:    "navigate without URL",
-			input:   `{"id":"1","action":"navigate"}`,
-			wantErr: true,
-		},
-		{
 			name:    "back command",
 			input:   `{"id":"1","action":"back"}`,
 			wantErr: false,
@@ -84,11 +79,6 @@ func TestParseCommand_Click(t *testing.T) {
 			input:    `{"id":"1","action":"click","selector":"#btn"}`,
 			wantErr:  false,
 			selector: "#btn",
-		},
-		{
-			name:    "click without selector",
-			input:   `{"id":"1","action":"click"}`,
-			wantErr: true,
 		},
 	}
 

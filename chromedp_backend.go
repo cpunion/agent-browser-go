@@ -71,7 +71,13 @@ func NewChromeDPBackend() *ChromeDPBackend {
 // Launch starts the browser.
 func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 	if b.launched.Load() {
-		return nil // Already launched
+		// Check if headless setting changed
+		if b.headless != opts.Headless {
+			// Need to relaunch with new settings
+			b.Close()
+		} else {
+			return nil // Already launched with same settings
+		}
 	}
 
 	// Build chromedp options

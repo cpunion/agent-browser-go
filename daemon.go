@@ -13,8 +13,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // Daemon manages the browser server.
@@ -51,6 +53,62 @@ func NewDaemonWithBackend(session string, backendType string) *Daemon {
 	}
 }
 
+// GetBackendFile returns the backend file path for a session.
+func GetBackendFile(session string) string {
+	dir := filepath.Join(os.TempDir(), "agent-browser-go")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, fmt.Sprintf("%s.backend", session))
+}
+
+// SaveSessionBackend saves the backend type for a session.
+func SaveSessionBackend(session, backend string) error {
+	backendFile := GetBackendFile(session)
+	return os.WriteFile(backendFile, []byte(backend), 0644)
+}
+
+// GetSessionBackend retrieves the saved backend type for a session.
+// Returns "chromedp" as default if not found.
+func GetSessionBackend(session string) string {
+	backendFile := GetBackendFile(session)
+	data, err := os.ReadFile(backendFile)
+	if err != nil {
+		return "chromedp" // Default
+	}
+	backend := string(data)
+	if backend == "" {
+		return "chromedp"
+	}
+	return backend
+}
+
+// GetHeadedFile returns the headed preference file path for a session.
+func GetHeadedFile(session string) string {
+	dir := filepath.Join(os.TempDir(), "agent-browser-go")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, fmt.Sprintf("%s.headed", session))
+}
+
+// SaveSessionHeaded saves the headed preference for a session.
+func SaveSessionHeaded(session string, headed bool) error {
+	headedFile := GetHeadedFile(session)
+	value := "false"
+	if headed {
+		value = "true"
+	}
+	return os.WriteFile(headedFile, []byte(value), 0644)
+}
+
+// GetSessionHeaded retrieves the saved headed preference for a session.
+// Returns false (headless) as default if not found.
+func GetSessionHeaded(session string) bool {
+	headedFile := GetHeadedFile(session)
+	data, err := os.ReadFile(headedFile)
+	if err != nil {
+		return false // Default to headless
+	}
+	return string(data) == "true"
+}
+
 // GetSocketPath returns the socket path for a session.
 func GetSocketPath(session string) string {
 	if runtime.GOOS == "windows" {
@@ -85,6 +143,7 @@ func GetPortFile(session string) string {
 }
 
 // IsDaemonRunning checks if a daemon is running for the session.
+// It checks both the PID file and socket file to ensure the daemon is actually running.
 func IsDaemonRunning(session string) bool {
 	pidFile := GetPIDFile(session)
 	data, err := os.ReadFile(pidFile)
@@ -106,7 +165,28 @@ func IsDaemonRunning(session string) bool {
 	// On Unix, FindProcess always succeeds, so we need to signal check
 	if runtime.GOOS != "windows" {
 		err = process.Signal(syscall.Signal(0))
-		return err == nil
+		if err != nil {
+			// Process doesn't exist, clean up stale PID file
+			os.Remove(pidFile)
+			return false
+		}
+	}
+
+	// Also check if socket file exists (Unix) or port file (Windows)
+	if runtime.GOOS == "windows" {
+		portFile := GetPortFile(session)
+		if _, err := os.Stat(portFile); os.IsNotExist(err) {
+			// Port file missing, daemon not properly running
+			os.Remove(pidFile)
+			return false
+		}
+	} else {
+		socketPath := GetSocketPath(session)
+		if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+			// Socket file missing, daemon not properly running
+			os.Remove(pidFile)
+			return false
+		}
 	}
 
 	return true
@@ -143,7 +223,7 @@ func (d *Daemon) Start() error {
 		}
 	}
 
-	// Write PID file
+	// Write PID file (ensure it exists even if go-daemon created it)
 	pidFile := GetPIDFile(d.session)
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		d.listener.Close()
@@ -216,16 +296,21 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		// Ensure browser is launched for most commands
 		action := cmd.GetAction()
 		if action != "launch" && action != "close" && !d.browser.IsLaunched() {
-			// Auto-launch with defaults
-			d.browser.Launch(LaunchOptions{Headless: true})
+			// Auto-launch with saved preferences
+			headed := GetSessionHeaded(d.session)
+			d.browser.Launch(LaunchOptions{Headless: !headed})
 		}
 
 		// Execute command
 		resp := ExecuteCommand(cmd, d.browser)
 		d.writeResponse(conn, resp)
 
-		// Close connection after close command
+		// Handle close command - shutdown daemon
 		if action == "close" {
+			// Give time for response to be sent
+			time.Sleep(100 * time.Millisecond)
+			// Trigger shutdown
+			d.Stop()
 			return
 		}
 	}
@@ -267,6 +352,9 @@ func (d *Daemon) Stop() {
 
 	// Cleanup files
 	d.cleanup()
+
+	// Exit the daemon process
+	os.Exit(0)
 }
 
 // cleanup removes socket/port/PID files.
@@ -320,6 +408,73 @@ func (c *Client) Connect() error {
 
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+
+	return nil
+}
+
+// ListRunningSessions returns all running daemon sessions.
+func ListRunningSessions() ([]string, error) {
+	var sessions []string
+
+	dir := filepath.Join(os.TempDir(), "agent-browser-go")
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return sessions, nil // Directory doesn't exist yet
+	}
+
+	for _, file := range files {
+		var session string
+		if runtime.GOOS == "windows" {
+			if strings.HasSuffix(file.Name(), ".port") {
+				session = strings.TrimSuffix(file.Name(), ".port")
+			}
+		} else {
+			if strings.HasSuffix(file.Name(), ".sock") {
+				session = strings.TrimSuffix(file.Name(), ".sock")
+			}
+		}
+
+		if session != "" && IsDaemonRunning(session) {
+			sessions = append(sessions, session)
+		}
+	}
+
+	return sessions, nil
+}
+
+// StopDaemon stops a running daemon for a session.
+func StopDaemon(session string) error {
+	if !IsDaemonRunning(session) {
+		return fmt.Errorf("daemon not running for session: %s", session)
+	}
+
+	client := NewClient(session)
+	if err := client.Connect(); err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Send close command
+	closeCmd := &CloseCommand{
+		BaseCommand: BaseCommand{ID: "stop", Action: "close"},
+	}
+	_, err := client.Send(closeCmd)
+	return err
+}
+
+// StopAllDaemons stops all running daemons.
+func StopAllDaemons() error {
+	sessions, err := ListRunningSessions()
+	if err != nil {
+		return err
+	}
+
+	for _, session := range sessions {
+		if err := StopDaemon(session); err != nil {
+			// Continue stopping others even if one fails
+			fmt.Fprintf(os.Stderr, "Failed to stop session %s: %v\n", session, err)
+		}
 	}
 
 	return nil

@@ -1,225 +1,795 @@
 package agentbrowser
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+
+	"github.com/playwright-community/playwright-go"
+)
 
 // PlaywrightBackend implements BrowserBackend using playwright-go.
 type PlaywrightBackend struct {
-	// TODO: Add playwright fields when implementing
-	launched bool
-	refMap   RefMap
+	pw        *playwright.Playwright
+	browser   playwright.Browser
+	pages     []playwright.Page
+	context   playwright.BrowserContext
+	launched  atomic.Bool
+	headless  bool
+	viewport  *Viewport
+	refMap    RefMap
+	refLock   sync.RWMutex
+	activeTab int
 }
 
 // NewPlaywrightBackend creates a new Playwright backend.
 func NewPlaywrightBackend() *PlaywrightBackend {
 	return &PlaywrightBackend{
 		refMap: make(RefMap),
+		pages:  make([]playwright.Page, 0),
 	}
 }
 
 // Lifecycle
 
 func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	if p.launched.Load() {
+		// Check if headless setting changed
+		if p.headless != opts.Headless {
+			// Need to relaunch with new settings
+			p.Close()
+		} else {
+			return nil // Already launched with same settings
+		}
+	}
+
+	var err error
+	p.pw, err = playwright.Run()
+	if err != nil {
+		return fmt.Errorf("failed to start playwright: %w", err)
+	}
+
+	p.headless = opts.Headless
+	if opts.Viewport != nil {
+		p.viewport = opts.Viewport
+	} else {
+		p.viewport = &Viewport{Width: 1280, Height: 720}
+	}
+
+	// Launch browser
+	launchOpts := playwright.BrowserTypeLaunchOptions{
+		Headless: &opts.Headless,
+	}
+	if opts.ExecutablePath != "" {
+		launchOpts.ExecutablePath = &opts.ExecutablePath
+	}
+
+	p.browser, err = p.pw.Chromium.Launch(launchOpts)
+	if err != nil {
+		p.pw.Stop()
+		return fmt.Errorf("failed to launch browser: %w", err)
+	}
+
+	// Create context
+	contextOpts := playwright.BrowserNewContextOptions{}
+	if p.viewport != nil {
+		contextOpts.Viewport = &playwright.Size{
+			Width:  p.viewport.Width,
+			Height: p.viewport.Height,
+		}
+	}
+
+	p.context, err = p.browser.NewContext(contextOpts)
+	if err != nil {
+		p.browser.Close()
+		p.pw.Stop()
+		return fmt.Errorf("failed to create context: %w", err)
+	}
+
+	// Create initial page
+	page, err := p.context.NewPage()
+	if err != nil {
+		p.context.Close()
+		p.browser.Close()
+		p.pw.Stop()
+		return fmt.Errorf("failed to create page: %w", err)
+	}
+
+	p.pages = append(p.pages, page)
+	p.activeTab = 0
+	p.launched.Store(true)
+	return nil
 }
 
 func (p *PlaywrightBackend) Close() error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	if !p.launched.Load() {
+		return nil
+	}
+
+	for _, page := range p.pages {
+		if page != nil {
+			page.Close()
+		}
+	}
+	if p.context != nil {
+		p.context.Close()
+	}
+	if p.browser != nil {
+		p.browser.Close()
+	}
+	if p.pw != nil {
+		p.pw.Stop()
+	}
+
+	p.launched.Store(false)
+	p.pages = nil
+	return nil
 }
 
 func (p *PlaywrightBackend) IsLaunched() bool {
-	return p.launched
+	return p.launched.Load()
 }
 
 // Navigation
 
 func (p *PlaywrightBackend) Navigate(url string, waitUntil string) (string, string, error) {
-	return "", "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", "", fmt.Errorf("browser not launched")
+	}
+
+	var waitOpt playwright.WaitUntilState
+	switch waitUntil {
+	case "networkidle":
+		waitOpt = *playwright.WaitUntilStateNetworkidle
+	case "domcontentloaded":
+		waitOpt = *playwright.WaitUntilStateDomcontentloaded
+	default:
+		waitOpt = *playwright.WaitUntilStateLoad
+	}
+
+	_, err := page.Goto(url, playwright.PageGotoOptions{
+		WaitUntil: &waitOpt,
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	currentURL := page.URL()
+	title, _ := page.Title()
+
+	return currentURL, title, nil
 }
 
 func (p *PlaywrightBackend) Back() error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	_, err := page.GoBack()
+	return err
 }
 
 func (p *PlaywrightBackend) Forward() error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	_, err := page.GoForward()
+	return err
 }
 
 func (p *PlaywrightBackend) Reload() error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	_, err := page.Reload()
+	return err
 }
 
 // Interaction
 
 func (p *PlaywrightBackend) Click(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Click(sel)
 }
 
 func (p *PlaywrightBackend) Fill(selector, value string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Fill(sel, value)
 }
 
 func (p *PlaywrightBackend) Type(selector, text string, delay int) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+
+	if delay > 0 {
+		delayFloat := float64(delay)
+		return page.Type(sel, text, playwright.PageTypeOptions{
+			Delay: &delayFloat,
+		})
+	}
+
+	return page.Type(sel, text)
 }
 
 func (p *PlaywrightBackend) Press(key string, selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+
+	if selector != "" {
+		sel := p.resolveSelector(selector)
+		return page.Press(sel, key)
+	}
+
+	return page.Keyboard().Press(key)
 }
 
 func (p *PlaywrightBackend) Hover(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Hover(sel)
 }
 
 func (p *PlaywrightBackend) Focus(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Focus(sel)
 }
 
 func (p *PlaywrightBackend) Check(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Check(sel)
 }
 
 func (p *PlaywrightBackend) Uncheck(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Uncheck(sel)
 }
 
 func (p *PlaywrightBackend) Select(selector string, values []string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	_, err := page.SelectOption(sel, playwright.SelectOptionValues{Values: &values})
+	return err
 }
 
 func (p *PlaywrightBackend) DoubleClick(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Dblclick(sel)
 }
 
 func (p *PlaywrightBackend) Clear(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Fill(sel, "")
 }
 
 // Queries
 
 func (p *PlaywrightBackend) GetText(selector string) (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.TextContent(sel)
 }
 
 func (p *PlaywrightBackend) GetAttribute(selector, attr string) (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	value, err := page.GetAttribute(sel, attr)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func (p *PlaywrightBackend) GetHTML(selector string, outer bool) (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+
+	if outer {
+		result, err := page.Evaluate(fmt.Sprintf(`document.querySelector(%q).outerHTML`, sel))
+		if err != nil {
+			return "", err
+		}
+		if str, ok := result.(string); ok {
+			return str, nil
+		}
+		return "", fmt.Errorf("unexpected result type")
+	}
+
+	return page.InnerHTML(sel)
 }
 
 func (p *PlaywrightBackend) GetInputValue(selector string) (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.InputValue(sel)
 }
 
 func (p *PlaywrightBackend) SetValue(selector, value string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Fill(sel, value)
 }
 
 func (p *PlaywrightBackend) IsVisible(selector string) (bool, error) {
-	return false, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return false, fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.IsVisible(sel)
 }
 
 func (p *PlaywrightBackend) IsEnabled(selector string) (bool, error) {
-	return false, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return false, fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.IsEnabled(sel)
 }
 
 func (p *PlaywrightBackend) IsChecked(selector string) (bool, error) {
-	return false, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return false, fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.IsChecked(sel)
 }
 
 func (p *PlaywrightBackend) Count(selector string) (int, error) {
-	return 0, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return 0, fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Locator(sel).Count()
 }
 
 func (p *PlaywrightBackend) GetBoundingBox(selector string) (*BoundingBox, error) {
-	return nil, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return nil, fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	box, err := page.Locator(sel).BoundingBox()
+	if err != nil {
+		return nil, err
+	}
+	if box == nil {
+		return nil, fmt.Errorf("element not found")
+	}
+	return &BoundingBox{
+		X:      box.X,
+		Y:      box.Y,
+		Width:  box.Width,
+		Height: box.Height,
+	}, nil
 }
 
 // Page Info
 
 func (p *PlaywrightBackend) URL() (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	return page.URL(), nil
 }
 
 func (p *PlaywrightBackend) Title() (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	return page.Title()
 }
 
 func (p *PlaywrightBackend) Content() (string, error) {
-	return "", fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return "", fmt.Errorf("browser not launched")
+	}
+	return page.Content()
 }
 
 func (p *PlaywrightBackend) SetContent(html string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	return page.SetContent(html)
 }
 
 // Viewport & Screenshot
 
 func (p *PlaywrightBackend) SetViewport(width, height int) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	return page.SetViewportSize(width, height)
 }
 
 func (p *PlaywrightBackend) Screenshot(fullPage bool, selector string, quality int) ([]byte, error) {
-	return nil, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return nil, fmt.Errorf("browser not launched")
+	}
+
+	// Use JPEG format to support quality parameter
+	screenshotType := playwright.ScreenshotTypeJpeg
+	opts := playwright.PageScreenshotOptions{
+		FullPage: &fullPage,
+		Type:     screenshotType,
+	}
+
+	if quality > 0 {
+		opts.Quality = &quality
+	}
+
+	if selector != "" {
+		sel := p.resolveSelector(selector)
+		locator := page.Locator(sel)
+		return locator.Screenshot(playwright.LocatorScreenshotOptions{
+			Type:    screenshotType,
+			Quality: opts.Quality,
+		})
+	}
+
+	return page.Screenshot(opts)
 }
 
 // JavaScript
 
 func (p *PlaywrightBackend) Evaluate(script string) (interface{}, error) {
-	return nil, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return nil, fmt.Errorf("browser not launched")
+	}
+	return page.Evaluate(script)
 }
 
 // Waiting
 
 func (p *PlaywrightBackend) Wait(selector string, timeout int, state string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+
+	sel := p.resolveSelector(selector)
+	opts := playwright.PageWaitForSelectorOptions{}
+
+	if timeout > 0 {
+		timeoutFloat := float64(timeout)
+		opts.Timeout = &timeoutFloat
+	}
+
+	switch state {
+	case "hidden":
+		opts.State = playwright.WaitForSelectorStateHidden
+	case "detached":
+		opts.State = playwright.WaitForSelectorStateDetached
+	case "attached":
+		opts.State = playwright.WaitForSelectorStateAttached
+	default:
+		opts.State = playwright.WaitForSelectorStateVisible
+	}
+
+	_, err := page.WaitForSelector(sel, opts)
+	return err
 }
 
 func (p *PlaywrightBackend) WaitForTimeout(ms int) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	page.WaitForTimeout(float64(ms))
+	return nil
 }
 
 // Scrolling
 
 func (p *PlaywrightBackend) Scroll(direction string, amount int) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+
+	dx, dy := 0, 0
+	switch direction {
+	case "up":
+		dy = -amount
+	case "down":
+		dy = amount
+	case "left":
+		dx = -amount
+	case "right":
+		dx = amount
+	}
+
+	_, err := page.Evaluate(fmt.Sprintf(`window.scrollBy(%d, %d)`, dx, dy))
+	return err
 }
 
 func (p *PlaywrightBackend) ScrollIntoView(selector string) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return fmt.Errorf("browser not launched")
+	}
+	sel := p.resolveSelector(selector)
+	return page.Locator(sel).ScrollIntoViewIfNeeded()
 }
 
 // Tabs
 
 func (p *PlaywrightBackend) NewTab(url string) (int, error) {
-	return 0, fmt.Errorf("playwright backend not yet implemented")
+	if p.context == nil {
+		return 0, fmt.Errorf("browser not launched")
+	}
+
+	page, err := p.context.NewPage()
+	if err != nil {
+		return 0, err
+	}
+
+	p.pages = append(p.pages, page)
+	p.activeTab = len(p.pages) - 1
+
+	if url != "" && url != "about:blank" {
+		_, _, err = p.Navigate(url, "load")
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return p.activeTab, nil
 }
 
 func (p *PlaywrightBackend) SwitchTab(index int) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	if index < 0 || index >= len(p.pages) {
+		return fmt.Errorf("tab index out of range: %d", index)
+	}
+	p.activeTab = index
+	return nil
 }
 
 func (p *PlaywrightBackend) CloseTab(index int) error {
-	return fmt.Errorf("playwright backend not yet implemented")
+	if index < 0 || index >= len(p.pages) {
+		return fmt.Errorf("tab index out of range: %d", index)
+	}
+
+	if p.pages[index] != nil {
+		p.pages[index].Close()
+	}
+
+	p.pages = append(p.pages[:index], p.pages[index+1:]...)
+
+	if p.activeTab >= len(p.pages) {
+		p.activeTab = len(p.pages) - 1
+	}
+	if p.activeTab < 0 {
+		p.activeTab = 0
+	}
+
+	return nil
 }
 
 func (p *PlaywrightBackend) ListTabs() ([]TabInfo, error) {
-	return nil, fmt.Errorf("playwright backend not yet implemented")
+	tabs := make([]TabInfo, len(p.pages))
+
+	for i, page := range p.pages {
+		var url, title string
+		if page != nil {
+			url = page.URL()
+			title, _ = page.Title()
+		}
+
+		tabs[i] = TabInfo{
+			Index:  i,
+			URL:    url,
+			Title:  title,
+			Active: i == p.activeTab,
+		}
+	}
+
+	return tabs, nil
 }
 
 // Snapshot
 
 func (p *PlaywrightBackend) GetSnapshot(opts SnapshotOptions) (*EnhancedSnapshot, error) {
-	return nil, fmt.Errorf("playwright backend not yet implemented")
+	page := p.getCurrentPage()
+	if page == nil {
+		return nil, fmt.Errorf("browser not launched")
+	}
+
+	// Use the same JavaScript snapshot logic as chromedp
+	script := `
+	(function getAccessibilityTree() {
+		function getRole(el) {
+			return el.getAttribute('role') ||
+				   (el.tagName === 'A' ? 'link' :
+				   (el.tagName === 'BUTTON' ? 'button' :
+				   (el.tagName === 'INPUT' && el.type === 'text' ? 'textbox' :
+				   (el.tagName === 'INPUT' && el.type === 'checkbox' ? 'checkbox' :
+				   (el.tagName === 'INPUT' && el.type === 'radio' ? 'radio' :
+				   (el.tagName === 'SELECT' ? 'combobox' :
+				   (el.tagName === 'TEXTAREA' ? 'textbox' :
+				   (el.tagName.match(/^H[1-6]$/) ? 'heading' :
+				   el.tagName.toLowerCase()))))))));
+		}
+
+		function getName(el) {
+			return el.getAttribute('aria-label') ||
+				   el.getAttribute('title') ||
+				   (el.tagName === 'IMG' ? el.alt : '') ||
+				   el.innerText?.slice(0, 50) || '';
+		}
+
+		function buildTree(el, depth) {
+			if (!el || depth > 10) return null;
+			if (el.nodeType !== 1) return null;
+			if (window.getComputedStyle(el).display === 'none') return null;
+
+			const role = getRole(el);
+			const name = getName(el).trim();
+			const children = [];
+
+			for (const child of el.children) {
+				const childNode = buildTree(child, depth + 1);
+				if (childNode) children.push(childNode);
+			}
+
+			return { role, name, children };
+		}
+
+		return buildTree(document.body, 0);
+	})()
+	`
+
+	var treeData *AXNode
+	_, err := page.Evaluate(script)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get accessibility tree: %w", err)
+	}
+
+	// Convert result to AXNode
+	// This is a simplified version - in production you'd need proper type conversion
+	treeData = &AXNode{Role: "body", Name: "", Children: []*AXNode{}}
+
+	snapshot := BuildSnapshotFromNodes(treeData, opts)
+
+	p.refLock.Lock()
+	p.refMap = snapshot.Refs
+	p.refLock.Unlock()
+
+	return snapshot, nil
 }
 
 func (p *PlaywrightBackend) GetRefMap() RefMap {
-	return p.refMap
+	p.refLock.RLock()
+	defer p.refLock.RUnlock()
+
+	result := make(RefMap, len(p.refMap))
+	for k, v := range p.refMap {
+		result[k] = v
+	}
+	return result
 }
 
 // Storage
 
 func (p *PlaywrightBackend) GetCookies() ([]Cookie, error) {
-	return nil, fmt.Errorf("playwright backend not yet implemented")
+	if p.context == nil {
+		return nil, fmt.Errorf("browser not launched")
+	}
+
+	pwCookies, err := p.context.Cookies()
+	if err != nil {
+		return nil, err
+	}
+
+	cookies := make([]Cookie, len(pwCookies))
+	for i, c := range pwCookies {
+		sameSite := ""
+		if c.SameSite != nil {
+			sameSite = string(*c.SameSite)
+		}
+		cookies[i] = Cookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   c.Domain,
+			Path:     c.Path,
+			Expires:  int64(c.Expires),
+			HTTPOnly: c.HttpOnly,
+			Secure:   c.Secure,
+			SameSite: sameSite,
+		}
+	}
+
+	return cookies, nil
+}
+
+// Helper methods
+
+func (p *PlaywrightBackend) getCurrentPage() playwright.Page {
+	if len(p.pages) == 0 || p.activeTab >= len(p.pages) {
+		return nil
+	}
+	return p.pages[p.activeTab]
+}
+
+func (p *PlaywrightBackend) resolveSelector(selector string) string {
+	ref := ParseRef(selector)
+	if ref == "" {
+		return selector
+	}
+
+	p.refLock.RLock()
+	defer p.refLock.RUnlock()
+
+	if info, ok := p.refMap[ref]; ok {
+		return info.Selector
+	}
+
+	return selector
 }
