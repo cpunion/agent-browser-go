@@ -319,8 +319,9 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		if action == "close" {
 			// Give time for response to be sent
 			time.Sleep(100 * time.Millisecond)
-			// Trigger shutdown
-			d.Stop()
+			// Trigger shutdown in separate goroutine to avoid deadlock
+			// (this connection handler is part of d.connections)
+			go d.Stop()
 			return
 		}
 	}
@@ -455,12 +456,26 @@ func ListRunningSessions() ([]string, error) {
 
 // StopDaemon stops a running daemon for a session.
 func StopDaemon(session string) error {
+	// Read PID before we send close command
+	pidFile := GetPIDFile(session)
+	pidData, err := os.ReadFile(pidFile)
+	var pid int
+	if err == nil {
+		fmt.Sscanf(string(pidData), "%d", &pid)
+	}
+
 	if !IsDaemonRunning(session) {
 		return fmt.Errorf("daemon not running for session: %s", session)
 	}
 
 	client := NewClient(session)
 	if err := client.Connect(); err != nil {
+		// If we can't connect but have PID, try to kill directly
+		if pid > 0 {
+			if proc, err := os.FindProcess(pid); err == nil {
+				proc.Kill()
+			}
+		}
 		return err
 	}
 	defer client.Close()
@@ -469,8 +484,27 @@ func StopDaemon(session string) error {
 	closeCmd := &CloseCommand{
 		BaseCommand: BaseCommand{ID: "stop", Action: "close"},
 	}
-	_, err := client.Send(closeCmd)
-	return err
+	_, err = client.Send(closeCmd)
+	if err != nil {
+		return err
+	}
+
+	// Wait for process to actually exit (up to 5 seconds)
+	if pid > 0 {
+		for i := 0; i < 50; i++ {
+			proc, err := os.FindProcess(pid)
+			if err != nil {
+				break
+			}
+			// On Unix, sending signal 0 checks if process exists
+			if err := proc.Signal(syscall.Signal(0)); err != nil {
+				break // Process no longer exists
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	return nil
 }
 
 // StopAllDaemons stops all running daemons.
