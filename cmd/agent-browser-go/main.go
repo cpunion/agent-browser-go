@@ -131,22 +131,26 @@ func main() {
 		return
 	}
 
-	// Check if daemon needs restart (backend or userDataDir changed)
-	needsRestart := false
+	// Check if we need to restart daemon (only for certain parameter changes)
 	if agentbrowser.IsDaemonRunning(session) {
+		needsRestart := false
 		savedBackend := agentbrowser.GetSessionBackend(session)
 		savedUserDataDir := agentbrowser.GetSessionUserDataDir(session)
-
 		if backendSpecified && savedBackend != backend {
 			needsRestart = true
 		}
 		if userDataDir != "" && savedUserDataDir != userDataDir {
 			needsRestart = true
 		}
-		// Check if headed mode changed
-		savedHeaded := agentbrowser.GetSessionHeaded(session)
-		if headed != savedHeaded {
-			needsRestart = true
+
+		// Only check headed mode change for open/launch commands
+		// Other commands (snapshot, click, etc.) should ignore --headed flag
+		isLaunchCommand := command == "open" || command == "launch"
+		if isLaunchCommand {
+			savedHeaded := agentbrowser.GetSessionHeaded(session)
+			if headed != savedHeaded {
+				needsRestart = true
+			}
 		}
 
 		if needsRestart {
@@ -706,9 +710,14 @@ func startDaemon(session string, backend string, userDataDir string, locale stri
 
 func handleDaemon(session string, backend string, userDataDir string, locale string) {
 	// Use go-daemon library for proper daemonization
+	// Note: LogFileName is required for stdout/stderr to work properly
+	// Without it, chromedp headed mode fails because Chrome's output is lost
+	logFile := agentbrowser.GetLogFile(session)
 	ctx := &daemon.Context{
 		PidFileName: agentbrowser.GetPIDFile(session),
 		PidFilePerm: 0644,
+		LogFileName: logFile,
+		LogFilePerm: 0640,
 		Umask:       027,
 		Args:        os.Args, // Explicitly pass command line args to child
 	}

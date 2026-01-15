@@ -173,6 +173,13 @@ func GetPortFile(session string) string {
 	return filepath.Join(dir, fmt.Sprintf("%s.port", session))
 }
 
+// GetLogFile returns the log file path for a session.
+func GetLogFile(session string) string {
+	dir := filepath.Join(os.TempDir(), "agent-browser-go")
+	_ = os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, fmt.Sprintf("%s.log", session))
+}
+
 // IsDaemonRunning checks if a daemon is running for the session.
 // It checks both the PID file and socket file to ensure the daemon is actually running.
 func IsDaemonRunning(session string) bool {
@@ -481,7 +488,7 @@ func ListRunningSessions() ([]string, error) {
 
 // StopDaemon stops a running daemon for a session.
 func StopDaemon(session string) error {
-	// Read PID before we send close command
+	// Read PID before we try to stop
 	pidFile := GetPIDFile(session)
 	pidData, err := os.ReadFile(pidFile)
 	var pid int
@@ -493,25 +500,13 @@ func StopDaemon(session string) error {
 		return fmt.Errorf("daemon not running for session: %s", session)
 	}
 
-	client := NewClient(session)
-	if err := client.Connect(); err != nil {
-		// If we can't connect but have PID, try to kill directly
-		if pid > 0 {
-			if proc, err := os.FindProcess(pid); err == nil {
-				_ = proc.Kill()
-			}
+	// Don't send close command - that would close the browser!
+	// Just kill the daemon process directly.
+	// The browser will continue running and can be reconnected to.
+	if pid > 0 {
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = proc.Kill()
 		}
-		return err
-	}
-	defer client.Close()
-
-	// Send close command
-	closeCmd := &CloseCommand{
-		BaseCommand: BaseCommand{ID: "stop", Action: "close"},
-	}
-	_, err = client.Send(closeCmd)
-	if err != nil {
-		return err
 	}
 
 	// Wait for process to actually exit (up to 5 seconds)

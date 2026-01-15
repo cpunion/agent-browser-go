@@ -2,6 +2,7 @@ package agentbrowser
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -718,62 +719,29 @@ func (p *PlaywrightBackend) GetSnapshot(opts SnapshotOptions) (*EnhancedSnapshot
 		return nil, fmt.Errorf("browser not launched")
 	}
 
-	// Use the same JavaScript snapshot logic as chromedp
-	script := `
-	(function getAccessibilityTree() {
-		function getRole(el) {
-			return el.getAttribute('role') ||
-				   (el.tagName === 'A' ? 'link' :
-				   (el.tagName === 'BUTTON' ? 'button' :
-				   (el.tagName === 'INPUT' && el.type === 'text' ? 'textbox' :
-				   (el.tagName === 'INPUT' && el.type === 'checkbox' ? 'checkbox' :
-				   (el.tagName === 'INPUT' && el.type === 'radio' ? 'radio' :
-				   (el.tagName === 'SELECT' ? 'combobox' :
-				   (el.tagName === 'TEXTAREA' ? 'textbox' :
-				   (el.tagName.match(/^H[1-6]$/) ? 'heading' :
-				   el.tagName.toLowerCase()))))))));
-		}
+	// Wait for page to be fully loaded (networkidle ensures all resources loaded)
+	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateNetworkidle,
+	}); err != nil {
+		log.Printf("Warning: WaitForLoadState failed: %v", err)
+		// Continue anyway - page might already be loaded
+	}
 
-		function getName(el) {
-			return el.getAttribute('aria-label') ||
-				   el.getAttribute('title') ||
-				   (el.tagName === 'IMG' ? el.alt : '') ||
-				   el.innerText?.slice(0, 50) || '';
-		}
-
-		function buildTree(el, depth) {
-			if (!el || depth > 10) return null;
-			if (el.nodeType !== 1) return null;
-			if (window.getComputedStyle(el).display === 'none') return null;
-
-			const role = getRole(el);
-			const name = getName(el).trim();
-			const children = [];
-
-			for (const child of el.children) {
-				const childNode = buildTree(child, depth + 1);
-				if (childNode) children.push(childNode);
-			}
-
-			return { role, name, children };
-		}
-
-		return buildTree(document.body, 0);
-	})()
-	`
-
-	result, err := page.Evaluate(script)
+	// Use Playwright's built-in AriaSnapshot API (like TypeScript version)
+	// This returns a formatted ARIA tree string
+	locator := page.Locator(":root")
+	ariaTree, err := locator.AriaSnapshot()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get accessibility tree: %w", err)
+		return nil, fmt.Errorf("failed to get ARIA snapshot: %w", err)
 	}
 
-	// Convert result to AXNode
-	treeData := convertToAXNode(result)
-	if treeData == nil {
-		treeData = &AXNode{Role: "body", Name: "", Children: []*AXNode{}}
+	if ariaTree == "" {
+		return &EnhancedSnapshot{Tree: "(empty)", Refs: make(RefMap)}, nil
 	}
 
-	snapshot := BuildSnapshotFromNodes(treeData, opts)
+	// Process the ARIA tree to add refs and apply filters
+	// This matches the TypeScript processAriaTree function
+	snapshot := processAriaTree(ariaTree, opts)
 
 	p.refLock.Lock()
 	p.refMap = snapshot.Refs

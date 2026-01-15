@@ -98,13 +98,6 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 	if os.Getenv("AGENT_BROWSER_NO_SANDBOX") == "1" {
 		chromedpOpts = append(chromedpOpts, chromedp.NoSandbox)
 	}
-	if os.Getenv("AGENT_BROWSER_DISABLE_SHM") == "1" {
-		chromedpOpts = append(chromedpOpts, chromedp.Flag("disable-dev-shm-usage", true))
-	}
-
-	if opts.Headless {
-		chromedpOpts = append(chromedpOpts, chromedp.Headless)
-	}
 
 	if opts.ExecutablePath != "" {
 		chromedpOpts = append(chromedpOpts, chromedp.ExecPath(opts.ExecutablePath))
@@ -132,10 +125,39 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 
 	b.headless = opts.Headless
 
+	// Build final options
+	var finalOpts []chromedp.ExecAllocatorOption
+
+	if opts.Headless {
+		// Use default options (which include headless) plus our additions
+		finalOpts = append(chromedp.DefaultExecAllocatorOptions[:], chromedpOpts...)
+	} else {
+		// For headed mode, use configuration similar to Python playwright
+		// Key flags from playwright that work: ignore_default_args=["--enable-automation"]
+		// and args like --disable-blink-features=AutomationControlled
+		finalOpts = []chromedp.ExecAllocatorOption{
+			chromedp.NoFirstRun,
+			chromedp.NoDefaultBrowserCheck,
+			// Essential flags
+			chromedp.Flag("disable-background-networking", true),
+			chromedp.Flag("disable-sync", true),
+			chromedp.Flag("password-store", "basic"),
+			chromedp.Flag("use-mock-keychain", true),
+			// Headed mode specific flags (from Python playwright working config)
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-dev-shm-usage", true),
+			chromedp.Flag("disable-blink-features", "AutomationControlled"),
+			chromedp.Flag("disable-infobars", true),
+			// Exclude enable-automation switch (correct syntax from chromedp issues)
+			chromedp.Flag("excludeSwitches", "enable-automation"),
+		}
+		finalOpts = append(finalOpts, chromedpOpts...)
+	}
+
 	// Create allocator
 	b.allocCtx, b.allocCancel = chromedp.NewExecAllocator(
 		context.Background(),
-		append(chromedp.DefaultExecAllocatorOptions[:], chromedpOpts...)...,
+		finalOpts...,
 	)
 
 	// Create browser context
