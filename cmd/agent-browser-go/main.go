@@ -109,6 +109,32 @@ func main() {
 	command := remainingArgs[0]
 	cmdArgs := remainingArgs[1:]
 
+	// Validate that launch-specific parameters are only used with open/goto/launch/daemon commands
+	isLaunchCommand := command == "open" || command == "goto" || command == "launch" || command == "daemon"
+	backendAllowed := isLaunchCommand || command == "install"
+	if backendSpecified && !backendAllowed {
+		fmt.Fprintf(os.Stderr, "Error: --backend can only be used with 'open' or 'install' commands\n")
+		os.Exit(1)
+	}
+	if !isLaunchCommand {
+		// Check if user specified launch-specific parameters
+		if headed {
+			fmt.Fprintf(os.Stderr, "Error: --headed/--head can only be used with 'open' command\n")
+			os.Exit(1)
+		}
+		// Note: userDataDir from env is allowed, only explicit CLI flag is restricted
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--user-data-dir" || args[i] == "--profile" {
+				fmt.Fprintf(os.Stderr, "Error: --user-data-dir can only be used with 'open' command\n")
+				os.Exit(1)
+			}
+		}
+	}
+
+	if command == "install" && backendSpecified && !installArgsHaveBackend(cmdArgs) {
+		cmdArgs = append([]string{"--backend", backend}, cmdArgs...)
+	}
+
 	switch command {
 	case "install":
 		handleInstall(cmdArgs)
@@ -901,6 +927,15 @@ func handleInstall(args []string) {
 		fmt.Fprintf(os.Stderr, "Unknown backend: %s\n", backend)
 		os.Exit(1)
 	}
+}
+
+func installArgsHaveBackend(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--backend" || args[i] == "-b" {
+			return true
+		}
+	}
+	return false
 }
 
 func installChromedp() {
