@@ -19,6 +19,11 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+const (
+	chromeLaunchMaxAttempts = 2
+	chromeLaunchRetryDelay  = 750 * time.Millisecond
+)
+
 // BrowserManager manages the browser lifecycle and provides operations.
 type ChromeDPBackend struct {
 	allocCtx    context.Context
@@ -82,6 +87,23 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 			return nil // Already launched with same settings
 		}
 	}
+
+	var lastErr error
+	for attempt := 1; attempt <= chromeLaunchMaxAttempts; attempt++ {
+		lastErr = b.launchChromeInstance(opts)
+		if lastErr == nil {
+			return nil
+		}
+		if !isRetryableChromeLaunchError(lastErr) || attempt == chromeLaunchMaxAttempts {
+			break
+		}
+		time.Sleep(chromeLaunchRetryDelay)
+	}
+	return lastErr
+}
+
+func (b *ChromeDPBackend) launchChromeInstance(opts LaunchOptions) error {
+	b.cleanup()
 
 	// Build chromedp options
 	chromedpOpts := []chromedp.ExecAllocatorOption{
@@ -172,7 +194,7 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 
 	// Run an empty action to start the browser
 	if err := chromedp.Run(b.ctx); err != nil {
-		b.Close()
+		b.cleanup()
 		return fmt.Errorf("failed to launch browser: %w", err)
 	}
 
@@ -196,12 +218,27 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 	return nil
 }
 
+func isRetryableChromeLaunchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "websocket url timeout reached") ||
+		strings.Contains(msg, "context deadline exceeded")
+}
+
 // Close closes the browser.
 func (b *ChromeDPBackend) Close() error {
-	if !b.launched.Load() {
+	if !b.launched.Load() && b.ctx == nil && b.allocCtx == nil {
 		return nil
 	}
 
+	b.cleanup()
+	b.launched.Store(false)
+	return nil
+}
+
+func (b *ChromeDPBackend) cleanup() {
 	// Close all tab contexts
 	for _, cancel := range b.tabCancels {
 		if cancel != nil {
@@ -219,13 +256,15 @@ func (b *ChromeDPBackend) Close() error {
 		b.allocCancel()
 	}
 
-	b.launched.Store(false)
+	b.ctx = nil
+	b.cancel = nil
+	b.allocCtx = nil
+	b.allocCancel = nil
 	b.targets = nil
+	b.activeTab = 0
 	b.tabContexts = make(map[target.ID]context.Context)
 	b.tabCancels = make(map[target.ID]context.CancelFunc)
 	b.refMap = make(RefMap)
-
-	return nil
 }
 
 // IsLaunched returns whether the browser is launched.
