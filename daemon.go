@@ -116,6 +116,29 @@ func GetSessionHeaded(session string) bool {
 	return string(data) == "true"
 }
 
+// GetUserDataDirFile returns the user data dir file path for a session.
+func GetUserDataDirFile(session string) string {
+	dir := filepath.Join(os.TempDir(), "agent-browser-go")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, fmt.Sprintf("%s.userdatadir", session))
+}
+
+// SaveSessionUserDataDir saves the user data dir for a session.
+func SaveSessionUserDataDir(session, userDataDir string) error {
+	userDataDirFile := GetUserDataDirFile(session)
+	return os.WriteFile(userDataDirFile, []byte(userDataDir), 0644)
+}
+
+// GetSessionUserDataDir retrieves the saved user data dir for a session.
+func GetSessionUserDataDir(session string) string {
+	userDataDirFile := GetUserDataDirFile(session)
+	data, err := os.ReadFile(userDataDirFile)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 // GetSocketPath returns the socket path for a session.
 func GetSocketPath(session string) string {
 	if runtime.GOOS == "windows" {

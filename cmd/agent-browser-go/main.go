@@ -125,14 +125,38 @@ func main() {
 		return
 	}
 
+	// Check if daemon needs restart (backend or userDataDir changed)
+	needsRestart := false
+	if agentbrowser.IsDaemonRunning(session) {
+		savedBackend := agentbrowser.GetSessionBackend(session)
+		savedUserDataDir := agentbrowser.GetSessionUserDataDir(session)
+
+		if backendSpecified && savedBackend != backend {
+			needsRestart = true
+		}
+		if userDataDir != "" && savedUserDataDir != userDataDir {
+			needsRestart = true
+		}
+
+		if needsRestart {
+			if err := agentbrowser.StopDaemon(session); err != nil {
+				// Ignore error, just try to start new daemon
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
 	// Ensure daemon is running
 	if !agentbrowser.IsDaemonRunning(session) {
-		// Save backend and headed preference for this session
+		// Save backend, headed preference, and userDataDir for this session
 		if err := agentbrowser.SaveSessionBackend(session, backend); err != nil {
 			printError(jsonMode, "Failed to save backend: "+err.Error())
 		}
 		if err := agentbrowser.SaveSessionHeaded(session, headed); err != nil {
 			printError(jsonMode, "Failed to save headed preference: "+err.Error())
+		}
+		if err := agentbrowser.SaveSessionUserDataDir(session, userDataDir); err != nil {
+			printError(jsonMode, "Failed to save userDataDir: "+err.Error())
 		}
 		if err := startDaemon(session, backend, userDataDir); err != nil {
 			printError(jsonMode, "Failed to start daemon: "+err.Error())
