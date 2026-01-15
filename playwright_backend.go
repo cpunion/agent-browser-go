@@ -751,36 +751,7 @@ func (p *PlaywrightBackend) GetSnapshot(opts SnapshotOptions) (*EnhancedSnapshot
 }
 
 // convertToAXNode converts JavaScript result to AXNode tree
-func convertToAXNode(result interface{}) *AXNode {
-	if result == nil {
-		return nil
-	}
-
-	m, ok := result.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	node := &AXNode{}
-
-	if role, ok := m["role"].(string); ok {
-		node.Role = role
-	}
-	if name, ok := m["name"].(string); ok {
-		node.Name = name
-	}
-
-	if children, ok := m["children"].([]interface{}); ok {
-		for _, child := range children {
-			if childNode := convertToAXNode(child); childNode != nil {
-				node.Children = append(node.Children, childNode)
-			}
-		}
-	}
-
-	return node
-}
-
+// GetRefMap returns a copy of the current ref map
 func (p *PlaywrightBackend) GetRefMap() RefMap {
 	p.refLock.RLock()
 	defer p.refLock.RUnlock()

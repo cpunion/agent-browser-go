@@ -131,6 +131,8 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 	if opts.Headless {
 		// Use default options (which include headless) plus our additions
 		finalOpts = append(chromedp.DefaultExecAllocatorOptions[:], chromedpOpts...)
+		// Add --no-sandbox for Linux/CI environments (required on Ubuntu 23.10+)
+		finalOpts = append(finalOpts, chromedp.Flag("no-sandbox", true))
 	} else {
 		// For headed mode, use configuration similar to Python playwright
 		// Key flags from playwright that work: ignore_default_args=["--enable-automation"]
