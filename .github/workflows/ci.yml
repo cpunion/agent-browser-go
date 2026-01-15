@@ -31,20 +31,19 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Playwright dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: npx -y playwright@latest install --with-deps chromium
-
-      - name: Install Playwright (macOS)
-        if: matrix.os == 'macos-latest'
-        run: npx -y playwright@latest install chromium
-
-      - name: Install Playwright (Windows)
-        if: matrix.os == 'windows-latest'
-        run: npx -y playwright@latest install chromium
-
       - name: Build
         run: go build -v ./...
+
+      - name: Build CLI
+        run: go build -o agent-browser-go ./cmd/agent-browser-go
+
+      - name: Install Playwright driver (Unix)
+        if: matrix.os != 'windows-latest'
+        run: ./agent-browser-go install --backend playwright
+
+      - name: Install Playwright driver (Windows)
+        if: matrix.os == 'windows-latest'
+        run: .\agent-browser-go.exe install --backend playwright
 
       - name: Test (Unix)
         if: matrix.os != 'windows-latest'
