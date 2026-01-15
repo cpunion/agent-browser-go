@@ -2,6 +2,7 @@ package agentbrowser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -30,6 +31,7 @@ type ChromeDPBackend struct {
 	allocCancel context.CancelFunc
 	ctx         context.Context
 	cancel      context.CancelFunc
+	lifecycleMu sync.Mutex
 
 	// Tab management
 	targets     []target.ID
@@ -78,11 +80,15 @@ func NewChromeDPBackend() *ChromeDPBackend {
 
 // Launch starts the browser.
 func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
+	b.lifecycleMu.Lock()
+	defer b.lifecycleMu.Unlock()
+
 	if b.launched.Load() {
 		// Check if headless setting changed
 		if b.headless != opts.Headless {
 			// Need to relaunch with new settings
-			b.Close()
+			b.cleanupLocked()
+			b.launched.Store(false)
 		} else {
 			return nil // Already launched with same settings
 		}
@@ -90,7 +96,7 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 
 	var lastErr error
 	for attempt := 1; attempt <= chromeLaunchMaxAttempts; attempt++ {
-		lastErr = b.launchChromeInstance(opts)
+		lastErr = b.launchChromeInstanceLocked(opts)
 		if lastErr == nil {
 			return nil
 		}
@@ -102,8 +108,8 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 	return lastErr
 }
 
-func (b *ChromeDPBackend) launchChromeInstance(opts LaunchOptions) error {
-	b.cleanup()
+func (b *ChromeDPBackend) launchChromeInstanceLocked(opts LaunchOptions) error {
+	b.cleanupLocked()
 
 	// Build chromedp options
 	chromedpOpts := []chromedp.ExecAllocatorOption{
@@ -194,14 +200,14 @@ func (b *ChromeDPBackend) launchChromeInstance(opts LaunchOptions) error {
 
 	// Run an empty action to start the browser
 	if err := chromedp.Run(b.ctx); err != nil {
-		b.cleanup()
+		b.cleanupLocked()
 		return fmt.Errorf("failed to launch browser: %w", err)
 	}
 
 	// Get initial target
 	targets, err := chromedp.Targets(b.ctx)
 	if err != nil {
-		b.Close()
+		b.cleanupLocked()
 		return fmt.Errorf("failed to get targets: %w", err)
 	}
 
@@ -222,23 +228,27 @@ func isRetryableChromeLaunchError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "websocket url timeout reached") ||
-		strings.Contains(msg, "context deadline exceeded")
+	if strings.Contains(err.Error(), "websocket url timeout reached") {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
 }
 
 // Close closes the browser.
 func (b *ChromeDPBackend) Close() error {
+	b.lifecycleMu.Lock()
+	defer b.lifecycleMu.Unlock()
+
 	if !b.launched.Load() && b.ctx == nil && b.allocCtx == nil {
 		return nil
 	}
 
-	b.cleanup()
+	b.cleanupLocked()
 	b.launched.Store(false)
 	return nil
 }
 
-func (b *ChromeDPBackend) cleanup() {
+func (b *ChromeDPBackend) cleanupLocked() {
 	// Close all tab contexts
 	for _, cancel := range b.tabCancels {
 		if cancel != nil {
