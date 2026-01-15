@@ -109,6 +109,27 @@ func main() {
 	command := remainingArgs[0]
 	cmdArgs := remainingArgs[1:]
 
+	// Validate that launch-specific parameters are only used with open/goto/launch/daemon commands
+	isLaunchCommand := command == "open" || command == "goto" || command == "launch" || command == "daemon"
+	if !isLaunchCommand {
+		// Check if user specified launch-specific parameters
+		if headed {
+			fmt.Fprintf(os.Stderr, "Error: --headed/--head can only be used with 'open' command\n")
+			os.Exit(1)
+		}
+		if backendSpecified {
+			fmt.Fprintf(os.Stderr, "Error: --backend can only be used with 'open' command\n")
+			os.Exit(1)
+		}
+		// Note: userDataDir from env is allowed, only explicit CLI flag is restricted
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--user-data-dir" || args[i] == "--profile" {
+				fmt.Fprintf(os.Stderr, "Error: --user-data-dir can only be used with 'open' command\n")
+				os.Exit(1)
+			}
+		}
+	}
+
 	switch command {
 	case "install":
 		handleInstall(cmdArgs)
