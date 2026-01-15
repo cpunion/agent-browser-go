@@ -561,7 +561,7 @@ func (b *ChromeDPBackend) ListTabs() ([]TabInfo, error) {
 		var url, title string
 
 		if ctx != nil {
-			chromedp.Run(ctx,
+			_ = chromedp.Run(ctx,
 				chromedp.Location(&url),
 				chromedp.Title(&title),
 			)

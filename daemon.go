@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -63,7 +62,7 @@ func NewDaemonFull(session string, backendType string, userDataDir string) *Daem
 // GetBackendFile returns the backend file path for a session.
 func GetBackendFile(session string) string {
 	dir := filepath.Join(os.TempDir(), "agent-browser-go")
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	return filepath.Join(dir, fmt.Sprintf("%s.backend", session))
 }
 
@@ -91,7 +90,7 @@ func GetSessionBackend(session string) string {
 // GetHeadedFile returns the headed preference file path for a session.
 func GetHeadedFile(session string) string {
 	dir := filepath.Join(os.TempDir(), "agent-browser-go")
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	return filepath.Join(dir, fmt.Sprintf("%s.headed", session))
 }
 
@@ -119,7 +118,7 @@ func GetSessionHeaded(session string) bool {
 // GetUserDataDirFile returns the user data dir file path for a session.
 func GetUserDataDirFile(session string) string {
 	dir := filepath.Join(os.TempDir(), "agent-browser-go")
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	return filepath.Join(dir, fmt.Sprintf("%s.userdatadir", session))
 }
 
@@ -146,7 +145,7 @@ func GetSocketPath(session string) string {
 	}
 
 	dir := filepath.Join(os.TempDir(), "agent-browser-go")
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	return filepath.Join(dir, fmt.Sprintf("%s.sock", session))
 }
 
@@ -161,14 +160,14 @@ func GetPortForSession(session string) int {
 // GetPIDFile returns the PID file path for a session.
 func GetPIDFile(session string) string {
 	dir := filepath.Join(os.TempDir(), "agent-browser-go")
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	return filepath.Join(dir, fmt.Sprintf("%s.pid", session))
 }
 
 // GetPortFile returns the port file path for a session (Windows).
 func GetPortFile(session string) string {
 	dir := filepath.Join(os.TempDir(), "agent-browser-go")
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	return filepath.Join(dir, fmt.Sprintf("%s.port", session))
 }
 
@@ -309,9 +308,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		// Read line (command is JSON terminated by newline)
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			if err != io.EOF {
-				// Log error but don't crash
-			}
+			// Connection closed or error - just return
 			return
 		}
 
@@ -328,7 +325,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		if action != "launch" && action != "close" && !d.browser.IsLaunched() {
 			// Auto-launch with saved preferences
 			headed := GetSessionHeaded(d.session)
-			d.browser.Launch(LaunchOptions{
+			_ = d.browser.Launch(LaunchOptions{
 				Headless:    !headed,
 				UserDataDir: d.userDataDir,
 			})
@@ -357,7 +354,7 @@ func (d *Daemon) writeResponse(conn net.Conn, resp Response) {
 		data = []byte(fmt.Sprintf(`{"id":"","success":false,"error":"failed to serialize response: %s"}`, err.Error()))
 	}
 	data = append(data, '\n')
-	conn.Write(data)
+	_, _ = conn.Write(data)
 }
 
 // Stop stops the daemon.
@@ -435,13 +432,15 @@ func (c *Client) Connect() error {
 			return fmt.Errorf("invalid port file")
 		}
 		c.conn, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			return fmt.Errorf("failed to connect to daemon: %w", err)
+		}
 	} else {
 		socketPath := GetSocketPath(c.session)
 		c.conn, err = net.Dial("unix", socketPath)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to connect to daemon: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to connect to daemon: %w", err)
+		}
 	}
 
 	return nil
@@ -484,7 +483,7 @@ func StopDaemon(session string) error {
 	pidData, err := os.ReadFile(pidFile)
 	var pid int
 	if err == nil {
-		fmt.Sscanf(string(pidData), "%d", &pid)
+		_, _ = fmt.Sscanf(string(pidData), "%d", &pid)
 	}
 
 	if !IsDaemonRunning(session) {
@@ -496,7 +495,7 @@ func StopDaemon(session string) error {
 		// If we can't connect but have PID, try to kill directly
 		if pid > 0 {
 			if proc, err := os.FindProcess(pid); err == nil {
-				proc.Kill()
+				_ = proc.Kill()
 			}
 		}
 		return err

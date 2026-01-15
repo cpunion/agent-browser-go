@@ -91,7 +91,7 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 
 		p.context, err = p.pw.Chromium.LaunchPersistentContext(opts.UserDataDir, contextOpts)
 		if err != nil {
-			p.pw.Stop()
+			_ = p.pw.Stop()
 			return fmt.Errorf("failed to launch persistent context: %w", err)
 		}
 
@@ -114,7 +114,7 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 
 		p.browser, err = p.pw.Chromium.Launch(launchOpts)
 		if err != nil {
-			p.pw.Stop()
+			_ = p.pw.Stop()
 			return fmt.Errorf("failed to launch browser: %w", err)
 		}
 
@@ -129,17 +129,17 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 
 		p.context, err = p.browser.NewContext(contextOpts)
 		if err != nil {
-			p.browser.Close()
-			p.pw.Stop()
+			_ = p.browser.Close()
+			_ = p.pw.Stop()
 			return fmt.Errorf("failed to create context: %w", err)
 		}
 
 		// Create initial page
 		page, err := p.context.NewPage()
 		if err != nil {
-			p.context.Close()
-			p.browser.Close()
-			p.pw.Stop()
+			_ = p.context.Close()
+			_ = p.browser.Close()
+			_ = p.pw.Stop()
 			return fmt.Errorf("failed to create page: %w", err)
 		}
 
@@ -168,7 +168,7 @@ func (p *PlaywrightBackend) Close() error {
 		p.browser.Close()
 	}
 	if p.pw != nil {
-		p.pw.Stop()
+		_ = p.pw.Stop()
 	}
 
 	p.launched.Store(false)

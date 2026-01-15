@@ -80,7 +80,7 @@ func main() {
 
 		// Count files
 		var fileCount int
-		filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() {
 				fileCount++
 			}

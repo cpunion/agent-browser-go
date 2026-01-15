@@ -1,0 +1,37 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  disable:
+    - typecheck
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (net.Conn).Close
+      - (io.Closer).Close
+  staticcheck:
+    checks:
+      - all
+      - "-SA1019"  # Ignore deprecated warnings (playwright APIs)
+      - "-SA9003"  # Ignore empty branch warnings
+
+issues:
+  exclude-rules:
+    # Ignore unused fields that are planned for future use
+    - path: chromedp_backend.go
+      linters:
+        - unused
+      text: "field .* is unused"
+    # Ignore unused helper functions
+    - path: chromedp_backend.go
+      linters:
+        - unused
+      text: "func .* is unused"

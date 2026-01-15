@@ -139,9 +139,7 @@ func main() {
 		}
 
 		if needsRestart {
-			if err := agentbrowser.StopDaemon(session); err != nil {
-				// Ignore error, just try to start new daemon
-			}
+			_ = agentbrowser.StopDaemon(session) // Ignore error, just try to start new daemon
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
@@ -728,7 +726,7 @@ func handleDaemon(session string, backend string, userDataDir string) {
 		// Parent process - just exit
 		return
 	}
-	defer ctx.Release()
+	defer func() { _ = ctx.Release() }()
 
 	// Child process - run the daemon
 	d := agentbrowser.NewDaemonFull(session, backend, userDataDir)
