@@ -88,13 +88,23 @@ test_backend() {
     ./agent-browser-go --backend "$BACKEND" --user-data-dir "$SCRIPT_DIR/$DATA_DIR" open https://example.com/ >/dev/null 2>&1
     sleep 2
 
-    # 6. Test: Snapshot returns content
+    # 6. Test: Snapshot returns valid content (not just empty body)
     log_info "Testing snapshot..."
     SNAPSHOT=$(./agent-browser-go snapshot 2>&1)
-    if [[ "$SNAPSHOT" == *"Example Domain"* ]] || [[ "$SNAPSHOT" == *"body"* && "$SNAPSHOT" == *"link"* ]]; then
-        log_pass "[$BACKEND] Snapshot returns page content"
+
+    # Count the number of lines - a valid snapshot should have multiple lines
+    SNAPSHOT_LINES=$(echo "$SNAPSHOT" | wc -l | tr -d ' ')
+
+    # Check for actual page content
+    if [[ "$SNAPSHOT" == *"Example Domain"* ]] && [ "$SNAPSHOT_LINES" -ge 3 ]; then
+        log_pass "[$BACKEND] Snapshot returns valid page content ($SNAPSHOT_LINES lines)"
+    elif [[ "$SNAPSHOT" == "- body"* ]] && [ "$SNAPSHOT_LINES" -le 2 ]; then
+        # This is the bug case - only body with no children
+        log_fail "[$BACKEND] Snapshot returned empty body (likely accessibility tree bug)"
+    elif [[ "$SNAPSHOT" == *"link"* ]] && [[ "$SNAPSHOT" == *"heading"* ]] && [ "$SNAPSHOT_LINES" -ge 3 ]; then
+        log_pass "[$BACKEND] Snapshot returns page structure ($SNAPSHOT_LINES lines)"
     else
-        log_fail "[$BACKEND] Snapshot failed or empty: $SNAPSHOT"
+        log_fail "[$BACKEND] Snapshot failed or incomplete: $SNAPSHOT"
     fi
 
     # 7. Test: Chrome/browser process has correct user-data-dir
