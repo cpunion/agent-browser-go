@@ -131,8 +131,13 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 	if opts.Headless {
 		// Use default options (which include headless) plus our additions
 		finalOpts = append(chromedp.DefaultExecAllocatorOptions[:], chromedpOpts...)
-		// Add --no-sandbox for Linux/CI environments (required on Ubuntu 23.10+)
-		finalOpts = append(finalOpts, chromedp.Flag("no-sandbox", true))
+		// Add flags for Linux/CI environments and anti-detection (matching Python playwright)
+		finalOpts = append(finalOpts,
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-dev-shm-usage", true),
+			chromedp.Flag("disable-blink-features", "AutomationControlled"),
+			chromedp.Flag("disable-infobars", true),
+		)
 	} else {
 		// For headed mode, use configuration similar to Python playwright
 		// Key flags from playwright that work: ignore_default_args=["--enable-automation"]

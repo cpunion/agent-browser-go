@@ -58,18 +58,12 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 		p.viewport = &Viewport{Width: 1280, Height: 720}
 	}
 
-	// Launch browser with anti-detection arguments
+	// Launch browser with anti-detection arguments (matching Python playwright config)
 	args := []string{
+		"--no-sandbox",
+		"--disable-dev-shm-usage",
 		"--disable-blink-features=AutomationControlled",
 		"--disable-infobars",
-	}
-
-	// Optional: sandbox and shm flags (via environment variables)
-	if os.Getenv("AGENT_BROWSER_NO_SANDBOX") == "1" {
-		args = append(args, "--no-sandbox")
-	}
-	if os.Getenv("AGENT_BROWSER_DISABLE_SHM") == "1" {
-		args = append(args, "--disable-dev-shm-usage")
 	}
 
 	// Use persistent context if UserDataDir is specified
