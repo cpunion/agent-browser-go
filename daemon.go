@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -28,6 +27,7 @@ type Daemon struct {
 	connections sync.WaitGroup
 	shutdown    chan struct{}
 	mu          sync.Mutex
+	userDataDir string
 }
 
 // NewDaemon creates a new daemon instance.
@@ -37,6 +37,11 @@ func NewDaemon(session string) *Daemon {
 
 // NewDaemonWithBackend creates a new daemon instance with specified backend.
 func NewDaemonWithBackend(session string, backendType string) *Daemon {
+	return NewDaemonFull(session, backendType, "")
+}
+
+// NewDaemonFull creates a new daemon instance with all options.
+func NewDaemonFull(session string, backendType string, userDataDir string) *Daemon {
 	var backend BackendType
 	switch backendType {
 	case "playwright":
@@ -48,9 +53,10 @@ func NewDaemonWithBackend(session string, backendType string) *Daemon {
 	}
 
 	return &Daemon{
-		session:  session,
-		browser:  NewBrowserManagerWithBackend(backend),
-		shutdown: make(chan struct{}),
+		session:     session,
+		browser:     NewBrowserManagerWithBackend(backend),
+		shutdown:    make(chan struct{}),
+		userDataDir: userDataDir,
 	}
 }
 
@@ -299,13 +305,9 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		if action != "launch" && action != "close" && !d.browser.IsLaunched() {
 			// Auto-launch with saved preferences
 			headed := GetSessionHeaded(d.session)
-			userDataDir := os.Getenv("AGENT_BROWSER_USER_DATA_DIR")
-			if userDataDir != "" {
-				log.Printf("Using UserDataDir: %s", userDataDir)
-			}
 			d.browser.Launch(LaunchOptions{
 				Headless:    !headed,
-				UserDataDir: userDataDir,
+				UserDataDir: d.userDataDir,
 			})
 		}
 
