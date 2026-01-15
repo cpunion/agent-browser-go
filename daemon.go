@@ -27,6 +27,7 @@ type Daemon struct {
 	shutdown    chan struct{}
 	mu          sync.Mutex
 	userDataDir string
+	locale      string
 }
 
 // NewDaemon creates a new daemon instance.
@@ -36,11 +37,11 @@ func NewDaemon(session string) *Daemon {
 
 // NewDaemonWithBackend creates a new daemon instance with specified backend.
 func NewDaemonWithBackend(session string, backendType string) *Daemon {
-	return NewDaemonFull(session, backendType, "")
+	return NewDaemonFull(session, backendType, "", "")
 }
 
 // NewDaemonFull creates a new daemon instance with all options.
-func NewDaemonFull(session string, backendType string, userDataDir string) *Daemon {
+func NewDaemonFull(session string, backendType string, userDataDir string, locale string) *Daemon {
 	var backend BackendType
 	switch backendType {
 	case "playwright":
@@ -56,6 +57,7 @@ func NewDaemonFull(session string, backendType string, userDataDir string) *Daem
 		browser:     NewBrowserManagerWithBackend(backend),
 		shutdown:    make(chan struct{}),
 		userDataDir: userDataDir,
+		locale:      locale,
 	}
 }
 
@@ -328,6 +330,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 			_ = d.browser.Launch(LaunchOptions{
 				Headless:    !headed,
 				UserDataDir: d.userDataDir,
+				Locale:      d.locale,
 			})
 		}
 

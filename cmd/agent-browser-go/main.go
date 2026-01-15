@@ -32,6 +32,7 @@ func main() {
 	backend := "chromedp"
 	backendSpecified := false
 	userDataDir := os.Getenv("AGENT_BROWSER_USER_DATA_DIR") // Default from env
+	locale := os.Getenv("AGENT_BROWSER_LOCALE")             // Default from env
 	var remainingArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -55,6 +56,11 @@ func main() {
 		case arg == "--user-data-dir" || arg == "--profile":
 			if i+1 < len(args) {
 				userDataDir = args[i+1]
+				i++
+			}
+		case arg == "--locale" || arg == "-l":
+			if i+1 < len(args) {
+				locale = args[i+1]
 				i++
 			}
 		case arg == "--help" || arg == "-h":
@@ -114,7 +120,7 @@ func main() {
 			handleDaemonStop(cmdArgs[1:], session)
 			return
 		}
-		handleDaemon(session, backend, userDataDir)
+		handleDaemon(session, backend, userDataDir, locale)
 		return
 	case "help":
 		if len(cmdArgs) > 0 {
@@ -156,7 +162,7 @@ func main() {
 		if err := agentbrowser.SaveSessionUserDataDir(session, userDataDir); err != nil {
 			printError(jsonMode, "Failed to save userDataDir: "+err.Error())
 		}
-		if err := startDaemon(session, backend, userDataDir); err != nil {
+		if err := startDaemon(session, backend, userDataDir, locale); err != nil {
 			printError(jsonMode, "Failed to start daemon: "+err.Error())
 			os.Exit(1)
 		}
@@ -676,7 +682,7 @@ func printResponse(resp agentbrowser.Response, jsonMode bool) {
 	}
 }
 
-func startDaemon(session string, backend string, userDataDir string) error {
+func startDaemon(session string, backend string, userDataDir string, locale string) error {
 	// Get executable path
 	exe, err := os.Executable()
 	if err != nil {
@@ -687,6 +693,9 @@ func startDaemon(session string, backend string, userDataDir string) error {
 	args := []string{"daemon", "--session", session, "--backend", backend}
 	if userDataDir != "" {
 		args = append(args, "--user-data-dir", userDataDir)
+	}
+	if locale != "" {
+		args = append(args, "--locale", locale)
 	}
 
 	// Start daemon in background
@@ -707,7 +716,7 @@ func startDaemon(session string, backend string, userDataDir string) error {
 	return nil
 }
 
-func handleDaemon(session string, backend string, userDataDir string) {
+func handleDaemon(session string, backend string, userDataDir string, locale string) {
 	// Use go-daemon library for proper daemonization
 	ctx := &daemon.Context{
 		PidFileName: agentbrowser.GetPIDFile(session),
@@ -729,7 +738,7 @@ func handleDaemon(session string, backend string, userDataDir string) {
 	defer func() { _ = ctx.Release() }()
 
 	// Child process - run the daemon
-	d := agentbrowser.NewDaemonFull(session, backend, userDataDir)
+	d := agentbrowser.NewDaemonFull(session, backend, userDataDir, locale)
 	if err := d.Start(); err != nil {
 		// Can't write to stderr in daemon, so just exit
 		os.Exit(1)

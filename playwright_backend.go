@@ -82,6 +82,9 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 		if opts.ExecutablePath != "" {
 			contextOpts.ExecutablePath = &opts.ExecutablePath
 		}
+		if opts.Locale != "" {
+			contextOpts.Locale = &opts.Locale
+		}
 		if p.viewport != nil {
 			contextOpts.Viewport = &playwright.Size{
 				Width:  p.viewport.Width,
@@ -120,6 +123,9 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 
 		// Create context
 		contextOpts := playwright.BrowserNewContextOptions{}
+		if opts.Locale != "" {
+			contextOpts.Locale = &opts.Locale
+		}
 		if p.viewport != nil {
 			contextOpts.Viewport = &playwright.Size{
 				Width:  p.viewport.Width,

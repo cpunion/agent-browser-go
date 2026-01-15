@@ -57,6 +57,7 @@ type LaunchOptions struct {
 	Viewport       *Viewport
 	ExecutablePath string
 	UserDataDir    string // Path to user data directory for persistent profiles
+	Locale         string // Browser locale, e.g. "en-US", "zh-CN"
 	CDPPort        int
 	Headers        map[string]string
 }
@@ -111,6 +112,12 @@ func (b *ChromeDPBackend) Launch(opts LaunchOptions) error {
 
 	if opts.UserDataDir != "" {
 		chromedpOpts = append(chromedpOpts, chromedp.UserDataDir(opts.UserDataDir))
+	}
+
+	if opts.Locale != "" {
+		chromedpOpts = append(chromedpOpts,
+			chromedp.Flag("lang", opts.Locale),
+			chromedp.Flag("accept-lang", opts.Locale))
 	}
 
 	if opts.Viewport != nil {
