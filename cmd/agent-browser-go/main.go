@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentbrowser "github.com/cpunion/agent-browser-go"
+	"github.com/playwright-community/playwright-go"
 	"github.com/sevlyar/go-daemon"
 )
 
@@ -915,27 +916,18 @@ func installPlaywright(withDeps bool) {
 	fmt.Println("=== playwright ===")
 	fmt.Println("Installing Playwright browser driver...")
 
-	// Use playwright CLI to install
-	args := []string{"install", "chromium"}
-	if withDeps {
-		args = append(args, "--with-deps")
-	}
-
-	cmd := exec.Command("npx", append([]string{"-y", "playwright@latest"}, args...)...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to install playwright: %v\n", err)
+	// Use playwright-go's Install() method to install the correct driver version
+	err := playwright.Install(&playwright.RunOptions{
+		Verbose: true,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to install playwright driver: %v\n", err)
 		fmt.Println("\nManual installation:")
-		fmt.Println("  npx -y playwright@latest install chromium")
-		if withDeps {
-			fmt.Println("  npx -y playwright@latest install-deps chromium")
-		}
+		fmt.Println("  go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium")
 		os.Exit(1)
 	}
 
-	fmt.Println("Playwright installed successfully!")
+	fmt.Println("Playwright driver installed successfully!")
 	fmt.Println("")
 }
 

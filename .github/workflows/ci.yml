@@ -34,8 +34,13 @@ jobs:
       - name: Build
         run: go build -v ./...
 
-      - name: Build CLI
+      - name: Build CLI (Unix)
+        if: matrix.os != 'windows-latest'
         run: go build -o agent-browser-go ./cmd/agent-browser-go
+
+      - name: Build CLI (Windows)
+        if: matrix.os == 'windows-latest'
+        run: go build -o agent-browser-go.exe ./cmd/agent-browser-go
 
       - name: Install Playwright driver (Unix)
         if: matrix.os != 'windows-latest'
