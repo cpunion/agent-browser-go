@@ -80,6 +80,14 @@ func (p *PlaywrightBackend) Launch(opts LaunchOptions) error {
 			Args:              args,
 			IgnoreDefaultArgs: []string{"--enable-automation"},
 		}
+
+		// Use system Chrome if requested (better compatibility for YouTube Studio, etc.)
+		// Set AGENT_BROWSER_USE_CHROME=1 to enable
+		if os.Getenv("AGENT_BROWSER_USE_CHROME") == "1" && opts.ExecutablePath == "" {
+			channel := "chrome"
+			contextOpts.Channel = &channel
+		}
+
 		if opts.ExecutablePath != "" {
 			contextOpts.ExecutablePath = &opts.ExecutablePath
 		}
