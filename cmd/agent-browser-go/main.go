@@ -143,6 +143,11 @@ func main() {
 		if userDataDir != "" && savedUserDataDir != userDataDir {
 			needsRestart = true
 		}
+		// Check if headed mode changed
+		savedHeaded := agentbrowser.GetSessionHeaded(session)
+		if headed != savedHeaded {
+			needsRestart = true
+		}
 
 		if needsRestart {
 			_ = agentbrowser.StopDaemon(session) // Ignore error, just try to start new daemon
@@ -178,7 +183,7 @@ func main() {
 	}
 	defer client.Close()
 
-	// Special handling for open command - launch then navigate
+	// Special handling for open command - just navigate, daemon will auto-launch browser
 	if command == "open" || command == "goto" {
 		if len(cmdArgs) < 1 {
 			printError(jsonMode, "open requires a URL")
@@ -186,29 +191,12 @@ func main() {
 		}
 		url := cmdArgs[0]
 
-		// Send launch command with headed parameter
-		headless := !headed
-		launchCmd := &agentbrowser.LaunchCommand{
-			BaseCommand: agentbrowser.BaseCommand{ID: genID(), Action: "launch"},
-			Headless:    &headless,
-			Viewport:    &agentbrowser.Viewport{Width: 1280, Height: 720},
-		}
-		resp, err := client.Send(launchCmd)
-		if err != nil {
-			printError(jsonMode, "Failed to launch browser: "+err.Error())
-			os.Exit(1)
-		}
-		if !resp.Success {
-			printError(jsonMode, resp.Error)
-			os.Exit(1)
-		}
-
-		// Send navigate command
+		// Send navigate command - daemon will auto-launch browser with correct settings
 		navCmd := &agentbrowser.NavigateCommand{
 			BaseCommand: agentbrowser.BaseCommand{ID: genID(), Action: "navigate"},
 			URL:         url,
 		}
-		resp, err = client.Send(navCmd)
+		resp, err := client.Send(navCmd)
 		if err != nil {
 			printError(jsonMode, "Failed to navigate: "+err.Error())
 			os.Exit(1)
@@ -722,6 +710,7 @@ func handleDaemon(session string, backend string, userDataDir string, locale str
 		PidFileName: agentbrowser.GetPIDFile(session),
 		PidFilePerm: 0644,
 		Umask:       027,
+		Args:        os.Args, // Explicitly pass command line args to child
 	}
 
 	// Reborn creates a child process and returns in the child
@@ -737,8 +726,41 @@ func handleDaemon(session string, backend string, userDataDir string, locale str
 	}
 	defer func() { _ = ctx.Release() }()
 
+	// Child process - re-parse args since we're a new process
+	// The function parameters are from parent, not from our actual os.Args
+	childSession := session
+	childBackend := backend
+	childUserDataDir := userDataDir
+	childLocale := locale
+
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch {
+		case arg == "--session" || arg == "-s":
+			if i+1 < len(os.Args) {
+				childSession = os.Args[i+1]
+				i++
+			}
+		case arg == "--backend" || arg == "-b":
+			if i+1 < len(os.Args) {
+				childBackend = os.Args[i+1]
+				i++
+			}
+		case arg == "--user-data-dir" || arg == "--profile":
+			if i+1 < len(os.Args) {
+				childUserDataDir = os.Args[i+1]
+				i++
+			}
+		case arg == "--locale" || arg == "-l":
+			if i+1 < len(os.Args) {
+				childLocale = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
 	// Child process - run the daemon
-	d := agentbrowser.NewDaemonFull(session, backend, userDataDir, locale)
+	d := agentbrowser.NewDaemonFull(childSession, childBackend, childUserDataDir, childLocale)
 	if err := d.Start(); err != nil {
 		// Can't write to stderr in daemon, so just exit
 		os.Exit(1)

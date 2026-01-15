@@ -182,7 +182,7 @@ func (b *ChromeDPBackend) Close() error {
 
 	// Use chromedp.Cancel which properly closes the browser and waits
 	if b.ctx != nil {
-		chromedp.Cancel(b.ctx)
+		_ = chromedp.Cancel(b.ctx)
 	}
 
 	// Cancel the allocator to ensure Chrome process is killed
