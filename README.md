@@ -185,8 +185,8 @@ go build -o agent-browser-go ./cmd/agent-browser-go
 
 ## License
 
-MIT
+Apache License 2.0
 
 ## Credits
 
-Based on [agent-browser](https://github.com/vercel-labs/agent-browser) by Vercel Labs.
+This project is a Go implementation inspired by [agent-browser](https://github.com/vercel-labs/agent-browser) by Vercel Labs, which is licensed under the Apache License 2.0.
