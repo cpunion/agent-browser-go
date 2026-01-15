@@ -762,15 +762,16 @@ func (p *PlaywrightBackend) GetSnapshot(opts SnapshotOptions) (*EnhancedSnapshot
 	})()
 	`
 
-	var treeData *AXNode
-	_, err := page.Evaluate(script)
+	result, err := page.Evaluate(script)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get accessibility tree: %w", err)
 	}
 
 	// Convert result to AXNode
-	// This is a simplified version - in production you'd need proper type conversion
-	treeData = &AXNode{Role: "body", Name: "", Children: []*AXNode{}}
+	treeData := convertToAXNode(result)
+	if treeData == nil {
+		treeData = &AXNode{Role: "body", Name: "", Children: []*AXNode{}}
+	}
 
 	snapshot := BuildSnapshotFromNodes(treeData, opts)
 
@@ -779,6 +780,37 @@ func (p *PlaywrightBackend) GetSnapshot(opts SnapshotOptions) (*EnhancedSnapshot
 	p.refLock.Unlock()
 
 	return snapshot, nil
+}
+
+// convertToAXNode converts JavaScript result to AXNode tree
+func convertToAXNode(result interface{}) *AXNode {
+	if result == nil {
+		return nil
+	}
+
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	node := &AXNode{}
+
+	if role, ok := m["role"].(string); ok {
+		node.Role = role
+	}
+	if name, ok := m["name"].(string); ok {
+		node.Name = name
+	}
+
+	if children, ok := m["children"].([]interface{}); ok {
+		for _, child := range children {
+			if childNode := convertToAXNode(child); childNode != nil {
+				node.Children = append(node.Children, childNode)
+			}
+		}
+	}
+
+	return node
 }
 
 func (p *PlaywrightBackend) GetRefMap() RefMap {
