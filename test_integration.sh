@@ -137,6 +137,34 @@ test_backend() {
         log_fail "[$BACKEND] Headed mode change did not restart daemon (old=$DAEMON_PID new=$NEW_DAEMON_PID)"
     fi
 
+    # 10. Test: Headed mode actually launches browser without --headless
+    log_info "Checking browser is running in headed mode..."
+    sleep 1
+
+    # Check that there's a Chrome/browser process for this data dir that does NOT have --headless
+    if ps ax | grep -v grep | grep "user-data-dir" | grep "$DATA_DIR" | grep -v "headless" | grep -q .; then
+        log_pass "[$BACKEND] Browser running in headed mode (no --headless flag)"
+    else
+        # Could also be --headless=new or other variants, check more carefully
+        BROWSER_CMD=$(ps ax | grep -v grep | grep "user-data-dir" | grep "$DATA_DIR" | head -1)
+        if [[ "$BROWSER_CMD" != *"headless"* ]]; then
+            log_pass "[$BACKEND] Browser running in headed mode"
+        else
+            log_fail "[$BACKEND] Browser still has headless flag: $BROWSER_CMD"
+        fi
+    fi
+
+    # macOS specific: Check if browser window is visible (optional, only on macOS)
+    if [[ "$(uname)" == "Darwin" ]] && command -v osascript &> /dev/null; then
+        log_info "Checking for visible browser window (macOS)..."
+        WINDOW_COUNT=$(osascript -e 'tell app "Google Chrome" to count windows' 2>/dev/null || echo "0")
+        if [ "$WINDOW_COUNT" -gt 0 ]; then
+            log_pass "[$BACKEND] Chrome has $WINDOW_COUNT visible window(s)"
+        else
+            log_info "[$BACKEND] Could not detect visible windows (might be using headless_shell)"
+        fi
+    fi
+
     # Cleanup for this backend
     ./agent-browser-go daemon stop --all 2>/dev/null || true
     sleep 1
