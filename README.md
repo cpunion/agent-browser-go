@@ -1,278 +1,495 @@
 # agent-browser-go
 
-[![CI](https://github.com/cpunion/agent-browser-go/actions/workflows/ci.yml/badge.svg)](https://github.com/cpunion/agent-browser-go/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/cpunion/agent-browser-go.svg)](https://pkg.go.dev/github.com/cpunion/agent-browser-go)
+Go implementation of [agent-browser](https://github.com/vercel-labs/agent-browser) - headless browser automation for AI agents.
 
-Headless browser automation CLI for AI agents - Go implementation.
+## Table of Contents
 
-## Features
-
-- 🚀 **Single binary** - No external dependencies, no Node.js required
-- 🎯 **AI-friendly** - Accessibility tree with deterministic refs (`@e1`, `@e2`)
-- 🔄 **Session isolation** - Multiple independent browser sessions
-- 📡 **JSON protocol** - Easy integration with AI agents
-- 🌐 **Cross-platform** - macOS, Linux, Windows
-- 🔧 **Dual backend** - chromedp (default) or playwright
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [CLI Usage](#cli-usage)
+  - [Core Commands](#core-commands)
+  - [Sessions](#sessions)
+  - [Snapshot Options](#snapshot-options)
+  - [Environment Variables](#environment-variables)
+  - [CLI Options](#cli-options)
+- [Go SDK](#go-sdk)
+  - [Basic Usage](#basic-usage)
+  - [Backend Selection](#backend-selection)
+  - [Advanced Features](#advanced-features)
+  - [API Reference](#api-reference)
+- [Differences from TypeScript Version](#differences-from-typescript-version)
+- [Architecture](#architecture)
+- [License](#license)
 
 ## Installation
 
-```bash
-go install github.com/cpunion/agent-browser-go/cmd/agent-browser-go@latest
-```
+### From Binary
 
-Or build from source:
+Download the latest release for your platform from [releases](https://github.com/cpunion/agent-browser-go/releases).
+
+### From Source
 
 ```bash
 git clone https://github.com/cpunion/agent-browser-go
 cd agent-browser-go
 go build -o agent-browser-go ./cmd/agent-browser-go
+
+# Install Playwright driver (if using playwright backend)
+./agent-browser-go install --backend playwright
+```
+
+### Linux Dependencies
+
+On Linux, install system dependencies for Chromium:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y \
+  libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+  libxrandr2 libgbm1 libasound2
 ```
 
 ## Quick Start
 
 ```bash
-# Launch browser and navigate
-agent-browser-go open https://example.com
+# Open a page
+./agent-browser-go open https://example.com
 
-# Get accessibility snapshot with refs
-agent-browser-go snapshot -i
+# Get accessibility tree with refs
+./agent-browser-go snapshot
 
-# Click element by ref
-agent-browser-go click @e1
+# Click by ref
+./agent-browser-go click @e1
 
-# Fill input
-agent-browser-go fill @e3 "test@example.com"
-
-# Take screenshot
-agent-browser-go screenshot page.png
+# Screenshot
+./agent-browser-go screenshot page.png
 
 # Close browser
-agent-browser-go close
+./agent-browser-go close
 ```
 
-## Commands
+## CLI Usage
 
-### Navigation
+### Core Commands
 
 ```bash
-agent-browser-go open <url>              # Navigate to URL (aliases: goto, navigate)
+# Navigation
+agent-browser-go open <url>              # Navigate to URL
 agent-browser-go back                    # Go back
 agent-browser-go forward                 # Go forward
 agent-browser-go reload                  # Reload page
-```
 
-### Interaction
-
-```bash
+# Interaction
 agent-browser-go click <selector>        # Click element
-agent-browser-go dblclick <selector>     # Double-click element
+agent-browser-go fill <selector> <text>  # Fill input
 agent-browser-go type <selector> <text>  # Type into element
-agent-browser-go fill <selector> <text>  # Clear and fill
 agent-browser-go press <key>             # Press key (Enter, Tab, etc.)
 agent-browser-go hover <selector>        # Hover element
-agent-browser-go select <selector> <val> # Select dropdown option
-agent-browser-go check <selector>        # Check checkbox
-agent-browser-go uncheck <selector>      # Uncheck checkbox
-agent-browser-go scroll <dir> [px]       # Scroll (up/down/left/right)
-agent-browser-go drag <src> <tgt>        # Drag and drop
-```
+agent-browser-go scroll <direction>      # Scroll (up/down/left/right)
 
-### Inspection
-
-```bash
-agent-browser-go snapshot                # Accessibility tree with refs (best for AI)
-agent-browser-go snapshot -i             # Interactive elements only
-agent-browser-go snapshot -c             # Compact (remove empty elements)
-agent-browser-go snapshot -d 3           # Limit depth to 3 levels
-agent-browser-go screenshot [path]       # Take screenshot (--full for full page)
+# Information
 agent-browser-go get text <selector>     # Get text content
-agent-browser-go get html <selector>     # Get innerHTML
+agent-browser-go get html <selector>     # Get HTML
 agent-browser-go get value <selector>    # Get input value
 agent-browser-go get title               # Get page title
 agent-browser-go get url                 # Get current URL
-```
 
-### State Checks
-
-```bash
-agent-browser-go is visible <selector>   # Check if visible
+# State checks
+agent-browser-go is visible <selector>   # Check visibility
 agent-browser-go is enabled <selector>   # Check if enabled
 agent-browser-go is checked <selector>   # Check if checked
+
+# Snapshot & Screenshot
+agent-browser-go snapshot                # Get accessibility tree
+agent-browser-go screenshot [path]       # Take screenshot
+
+# Browser control
+agent-browser-go close                   # Close browser
 ```
 
-### Wait
-
-```bash
-agent-browser-go wait <selector>         # Wait for element to be visible
-agent-browser-go wait <ms>               # Wait for time (milliseconds)
-agent-browser-go wait --text "Welcome"   # Wait for text to appear
-agent-browser-go wait --url "**/dash"    # Wait for URL pattern
-```
-
-### Daemon Management
-
-```bash
-agent-browser-go daemon stop             # Stop current session daemon
-agent-browser-go daemon stop --all       # Stop all daemons
-agent-browser-go session list            # List active sessions
-```
-
-## Selectors
-
-### Refs (Recommended for AI)
-
-Refs provide deterministic element selection from snapshots:
-
-```bash
-# 1. Get snapshot with refs
-agent-browser-go snapshot
-# Output:
-# - heading "Example Domain" [ref=e1] [level=1]
-# - button "Submit" [ref=e2]
-# - textbox "Email" [ref=e3]
-# - link "Learn more" [ref=e4]
-
-# 2. Use refs to interact
-agent-browser-go click @e2                   # Click the button
-agent-browser-go fill @e3 "test@example.com" # Fill the textbox
-agent-browser-go get text @e1                # Get heading text
-```
-
-**Why use refs?**
-- **Deterministic**: Ref points to exact element from snapshot
-- **Fast**: No DOM re-query needed
-- **AI-friendly**: Snapshot + ref workflow is optimal for LLMs
-
-### CSS Selectors
-
-```bash
-agent-browser-go click "#id"
-agent-browser-go click ".class"
-agent-browser-go click "div > button"
-```
-
-## Sessions
+### Sessions
 
 Run multiple isolated browser instances:
 
 ```bash
 # Different sessions
-agent-browser-go --session agent1 open site-a.com
-agent-browser-go --session agent2 open site-b.com
+agent-browser-go --session agent1 open https://site-a.com
+agent-browser-go --session agent2 open https://site-b.com
 
 # Or via environment variable
-AGENT_BROWSER_SESSION=agent1 agent-browser-go click "#btn"
+export AGENT_BROWSER_SESSION=agent1
+agent-browser-go click "#btn"
 
-# List active sessions
+# List sessions
 agent-browser-go session list
+
+# Stop specific session
+agent-browser-go daemon stop --session agent1
+
+# Stop all sessions
+agent-browser-go daemon stop --all
 ```
 
 Each session has its own:
 - Browser instance
 - Cookies and storage
 - Navigation history
-- Authentication state
+- Configuration (backend, headed mode, user data dir)
 
-## JSON Output (for AI agents)
+### Snapshot Options
 
 ```bash
-agent-browser-go --json snapshot -i
+agent-browser-go snapshot                # Full accessibility tree
+agent-browser-go snapshot -i             # Interactive elements only
+agent-browser-go snapshot -c             # Compact mode
+agent-browser-go snapshot -d 3           # Limit depth to 3
+agent-browser-go snapshot -s "#main"     # Scope to selector
 ```
-
-```json
-{
-  "id": "1234567890",
-  "success": true,
-  "data": {
-    "snapshot": "- button \"Submit\" [ref=e1]\n- link \"Learn more\" [ref=e2]",
-    "refs": {
-      "e1": {"role": "button", "name": "Submit"},
-      "e2": {"role": "link", "name": "Learn more"}
-    }
-  }
-}
-```
-
-## Global Options
 
 | Option | Description |
 |--------|-------------|
-| `--session <name>` | Use isolated session (or `AGENT_BROWSER_SESSION` env) |
-| `--backend <type>` | Browser backend: `chromedp` (default) or `playwright` |
-| `--user-data-dir <path>` | Browser profile directory for persistent sessions |
-| `--headed` | Show browser window (not headless) |
-| `--json` | JSON output (for agents) |
+| `-i, --interactive` | Only show interactive elements (buttons, links, inputs) |
+| `-c, --compact` | Remove empty structural elements |
+| `-d, --depth <n>` | Limit tree depth |
+| `-s, --selector <sel>` | Scope to CSS selector |
 
-## Environment Variables
+### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `AGENT_BROWSER_SESSION` | Default session name |
-| `AGENT_BROWSER_BACKEND` | Default backend (`chromedp` or `playwright`) |
-| `AGENT_BROWSER_USER_DATA_DIR` | Browser profile directory for persistent login |
-| `AGENT_BROWSER_NO_SANDBOX` | Set to `1` to disable sandbox (containers) |
-| `AGENT_BROWSER_DISABLE_SHM` | Set to `1` to disable shared memory (Docker) |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AGENT_BROWSER_SESSION` | Default session name | `default` |
+| `AGENT_BROWSER_BACKEND` | Default backend (`chromedp` or `playwright`) | `chromedp` |
+| `AGENT_BROWSER_USER_DATA_DIR` | User data directory for persistent profiles | - |
+| `AGENT_BROWSER_LOCALE` | Browser locale (e.g., `en-US`, `zh-CN`) | - |
+| `AGENT_BROWSER_USE_CHROME` | Use system Chrome (Playwright only, set to `1`) | - |
 
-### Persistent Browser Profile
+### CLI Options
 
-```bash
-# Use existing Chrome profile (maintains login sessions)
-agent-browser-go --user-data-dir "$HOME/Library/Application Support/Google/Chrome/Default" --head open https://example.com
+| Option | Description |
+|--------|-------------|
+| `--session <name>` | Use isolated session |
+| `--backend <name>` | Browser backend (`chromedp` or `playwright`) |
+| `--head, --headed` | Show browser window (not headless) |
+| `--user-data-dir <path>` | User data directory for persistent profiles |
+| `--json` | JSON output |
 
-# Or create a dedicated profile
-agent-browser-go --user-data-dir ./browser-profile --head open https://studio.youtube.com
+## Go SDK
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    agentbrowser "github.com/cpunion/agent-browser-go"
+)
+
+func main() {
+    // Create backend (chromedp or playwright)
+    backend := agentbrowser.NewChromedpBackend()
+
+    // Launch browser
+    err := backend.Launch(agentbrowser.LaunchOptions{
+        Headless: true,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer backend.Close()
+
+    // Navigate
+    err = backend.Navigate("https://example.com", agentbrowser.NavigateOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Get snapshot
+    snapshot, err := backend.GetSnapshot(agentbrowser.SnapshotOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(snapshot.Tree)
+
+    // Click element
+    err = backend.Click("button", agentbrowser.ClickOptions{})
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Screenshot
+    data, err := backend.Screenshot(agentbrowser.ScreenshotOptions{
+        FullPage: true,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    // Save screenshot data...
+}
 ```
 
-## Architecture
+### Backend Selection
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   CLI Client    │────▶│     Daemon      │────▶│    Browser      │
-│  (agent-browser)│     │   (background)  │     │   (chromedp)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                       │
-        │    Unix Socket        │    Chrome DevTools Protocol
-        │    (JSON Protocol)    │
+```go
+// Chromedp (default, lightweight)
+backend := agentbrowser.NewChromedpBackend()
+
+// Playwright (more features, requires installation)
+backend := agentbrowser.NewPlaywrightBackend()
 ```
 
-- **Browser Engine**: chromedp (native Go Chrome DevTools Protocol) or playwright-go
-- **IPC**: Unix sockets (macOS/Linux), TCP (Windows)
-- **Protocol**: JSON-based command/response
-- **Sessions**: Isolated via PID files
+**Chromedp vs Playwright:**
 
-## Comparison with TypeScript Version
+| Feature | Chromedp | Playwright |
+|---------|----------|------------|
+| Installation | No dependencies | Requires driver installation |
+| Size | Lightweight | Larger (includes driver) |
+| Features | Core automation | Full Playwright features |
+| Performance | Faster startup | Slightly slower |
+| Recommendation | Default choice | Use if you need Playwright-specific features |
+
+### Advanced Features
+
+#### Persistent Profiles (Login State)
+
+```go
+// Step 1: Manual login in headed mode
+backend := agentbrowser.NewChromedpBackend()
+err := backend.Launch(agentbrowser.LaunchOptions{
+    Headless:    false,  // Show browser
+    UserDataDir: "./my-profile",
+})
+// Manually log in to the site...
+backend.Close()
+
+// Step 2: Reuse login state in headless mode
+backend = agentbrowser.NewChromedpBackend()
+err = backend.Launch(agentbrowser.LaunchOptions{
+    Headless:    true,   // Headless mode
+    UserDataDir: "./my-profile",  // Reuse profile
+})
+// Now you're logged in!
+```
+
+#### Custom Browser Executable
+
+```go
+backend := agentbrowser.NewChromedpBackend()
+err := backend.Launch(agentbrowser.LaunchOptions{
+    ExecutablePath: "/path/to/chrome",
+})
+```
+
+#### Viewport Configuration
+
+```go
+err := backend.Launch(agentbrowser.LaunchOptions{
+    Viewport: &agentbrowser.Viewport{
+        Width:  1920,
+        Height: 1080,
+    },
+})
+```
+
+#### Using Refs from Snapshot
+
+```go
+// Get snapshot with refs
+snapshot, _ := backend.GetSnapshot(agentbrowser.SnapshotOptions{})
+
+// snapshot.Refs contains ref -> selector mapping
+// Example: {"e1": {Selector: "...", Role: "button", Name: "Submit"}}
+
+// Click by ref
+err := backend.Click("@e1", agentbrowser.ClickOptions{})
+```
+
+### API Reference
+
+#### Backend Interface
+
+```go
+type Backend interface {
+    // Lifecycle
+    Launch(opts LaunchOptions) error
+    Close() error
+
+    // Navigation
+    Navigate(url string, opts NavigateOptions) error
+    Back() error
+    Forward() error
+    Reload() error
+
+    // Interaction
+    Click(selector string, opts ClickOptions) error
+    Fill(selector, value string, opts FillOptions) error
+    Type(selector, text string, opts TypeOptions) error
+    Press(key string) error
+    Hover(selector string) error
+    Scroll(direction string, pixels int) error
+
+    // Information
+    GetText(selector string) (string, error)
+    GetHTML(selector string) (string, error)
+    GetValue(selector string) (string, error)
+    GetTitle() (string, error)
+    GetURL() (string, error)
+
+    // State
+    IsVisible(selector string) (bool, error)
+    IsEnabled(selector string) (bool, error)
+    IsChecked(selector string) (bool, error)
+
+    // Snapshot & Screenshot
+    GetSnapshot(opts SnapshotOptions) (*EnhancedSnapshot, error)
+    Screenshot(opts ScreenshotOptions) ([]byte, error)
+
+    // Tabs
+    NewTab() (int, error)
+    CloseTab(index int) error
+    SwitchTab(index int) error
+    ListTabs() ([]TabInfo, error)
+
+    // Cookies & Storage
+    GetCookies() ([]Cookie, error)
+    SetCookie(cookie Cookie) error
+    ClearCookies() error
+    GetLocalStorage(key string) (string, error)
+    SetLocalStorage(key, value string) error
+
+    // Evaluation
+    Evaluate(script string) (interface{}, error)
+}
+```
+
+#### LaunchOptions
+
+```go
+type LaunchOptions struct {
+    Headless       bool      // Run in headless mode (default: true)
+    UserDataDir    string    // User data directory for persistent profiles
+    ExecutablePath string    // Custom browser executable path
+    Locale         string    // Browser locale (e.g., "en-US")
+    Viewport       *Viewport // Viewport size
+}
+
+type Viewport struct {
+    Width  int
+    Height int
+}
+```
+
+#### SnapshotOptions
+
+```go
+type SnapshotOptions struct {
+    Interactive bool   // Only interactive elements
+    MaxDepth    int    // Maximum tree depth (0 = unlimited)
+    Compact     bool   // Remove empty structural elements
+    Selector    string // Scope to CSS selector
+}
+```
+
+#### ScreenshotOptions
+
+```go
+type ScreenshotOptions struct {
+    FullPage bool   // Capture full page
+    Path     string // Save to file (optional)
+}
+```
+
+## Differences from TypeScript Version
+
+### Architecture
 
 | Feature | TypeScript | Go |
 |---------|-----------|-----|
-| Runtime | Node.js | Single binary |
-| Browser | Playwright | chromedp / playwright |
-| Startup | ~500ms | ~200ms |
-| Memory | ~150MB | ~80MB |
-| Distribution | npm | Binary |
+| Runtime | Node.js daemon | Go daemon |
+| Browser Engine | Playwright | Chromedp (default) or Playwright |
+| Binary | Rust CLI + Node.js fallback | Single Go binary |
+| Installation | npm + Chromium download | Single binary (chromedp) or + driver (playwright) |
 
-## Development
+### Features
 
-```bash
-# Install dependencies
-go mod tidy
+**Implemented:**
+- ✅ Core commands (open, click, fill, type, etc.)
+- ✅ Snapshot with refs
+- ✅ Sessions
+- ✅ Headed mode
+- ✅ User data dir (persistent profiles)
+- ✅ Screenshots
+- ✅ Tabs management
+- ✅ Get/Is commands
+- ✅ Cookies & storage
+- ✅ JavaScript evaluation
 
-# Build
-go build ./...
+**Not Yet Implemented:**
+- ❌ CDP mode (connect to existing browser)
+- ❌ Streaming (WebSocket preview)
+- ❌ Network interception
+- ❌ Frames
+- ❌ Dialogs
+- ❌ Trace recording
+- ❌ Device emulation
+- ❌ Geolocation
 
-# Run tests
-go test ./...
+### Command Differences
 
-# Build CLI
-go build -o agent-browser-go ./cmd/agent-browser-go
+| Feature | TypeScript | Go |
+|---------|-----------|-----|
+| Backend selection | Playwright only | `--backend chromedp` or `--backend playwright` |
+| Default mode | Headless | Headless |
+| Installation | `agent-browser install` | `agent-browser-go install --backend playwright` (chromedp needs no install) |
+| Session management | `--session` | `--session` (same) |
 
-# Test UserDataDir functionality
-go run ./cmd/userdir-test
+### Environment Variables
+
+**Go-specific:**
+- `AGENT_BROWSER_BACKEND` - Set default backend
+- `AGENT_BROWSER_USE_CHROME` - Use system Chrome (Playwright only)
+
+**Shared:**
+- `AGENT_BROWSER_SESSION` - Default session
+- `AGENT_BROWSER_USER_DATA_DIR` - User data directory
+- `AGENT_BROWSER_LOCALE` - Browser locale
+
+## Architecture
+
+agent-browser-go uses a client-daemon architecture:
+
+1. **CLI Client** - Parses commands, communicates with daemon via Unix socket
+2. **Daemon** - Manages browser instance (chromedp or playwright)
+3. **Backend** - Abstraction layer supporting multiple browser engines
+
 ```
+┌─────────────┐
+│   CLI       │
+│  (client)   │
+└──────┬──────┘
+       │ Unix Socket
+┌──────▼──────┐
+│   Daemon    │
+│  (server)   │
+└──────┬──────┘
+       │
+   ┌───▼────┐
+   │Backend │
+   └───┬────┘
+       │
+  ┌────▼────┬──────────┐
+  │Chromedp │Playwright│
+  └─────────┴──────────┘
+```
+
+**Benefits:**
+- Fast subsequent commands (daemon stays running)
+- Session isolation (multiple daemons)
+- Backend flexibility (chromedp or playwright)
 
 ## License
 
-Apache License 2.0
-
-## Credits
-
-This project is a Go implementation inspired by [agent-browser](https://github.com/vercel-labs/agent-browser) by Vercel Labs, which is licensed under the Apache License 2.0.
+Apache-2.0
