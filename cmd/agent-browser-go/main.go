@@ -832,12 +832,71 @@ func handleSession(args []string, session string) {
 }
 
 func handleInstall(args []string) {
-	// Chromedp doesn't require installation - Chrome is expected to be available
-	fmt.Println("agent-browser-go uses chromedp which connects to an existing Chrome installation.")
+	// Parse --backend flag
+	backend := "all"
+	withDeps := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--backend", "-b":
+			if i+1 < len(args) {
+				backend = args[i+1]
+				i++
+			}
+		case "--with-deps":
+			withDeps = true
+		}
+	}
+
+	switch backend {
+	case "chromedp":
+		installChromedp()
+	case "playwright":
+		installPlaywright(withDeps)
+	case "all":
+		installChromedp()
+		installPlaywright(withDeps)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown backend: %s\n", backend)
+		os.Exit(1)
+	}
+}
+
+func installChromedp() {
+	fmt.Println("=== chromedp ===")
+	fmt.Println("chromedp uses an existing Chrome/Chromium installation.")
 	fmt.Println("Please ensure Chrome or Chromium is installed on your system.")
+	fmt.Println("  Chrome: https://www.google.com/chrome/")
+	fmt.Println("  Chromium: https://www.chromium.org/getting-involved/download-chromium/")
 	fmt.Println("")
-	fmt.Println("Install Chrome: https://www.google.com/chrome/")
-	fmt.Println("Or Chromium: https://www.chromium.org/getting-involved/download-chromium/")
+}
+
+func installPlaywright(withDeps bool) {
+	fmt.Println("=== playwright ===")
+	fmt.Println("Installing Playwright browser driver...")
+
+	// Use playwright CLI to install
+	args := []string{"install", "chromium"}
+	if withDeps {
+		args = append(args, "--with-deps")
+	}
+
+	cmd := exec.Command("npx", append([]string{"-y", "playwright@latest"}, args...)...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to install playwright: %v\n", err)
+		fmt.Println("\nManual installation:")
+		fmt.Println("  npx -y playwright@latest install chromium")
+		if withDeps {
+			fmt.Println("  npx -y playwright@latest install-deps chromium")
+		}
+		os.Exit(1)
+	}
+
+	fmt.Println("Playwright installed successfully!")
+	fmt.Println("")
 }
 
 func printHelp() {
